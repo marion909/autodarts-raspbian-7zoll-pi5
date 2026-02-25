@@ -57,6 +57,8 @@ Das Skript nutzt automatisch diese Dateien:
 - `assets/boot-splash.png`
 - `assets/wallpaper.jpg`
 
+Der Desktop-Hintergrund wird beim Login automatisch gesetzt (Autostart-Job).
+
 ## AutoDarts Konfiguration
 
 Die AutoDarts-Konfigurationsseite erreichst du im Netzwerk über die IP des Raspberry Pi auf Port `3180`:
@@ -79,6 +81,12 @@ Der Browser-Zoom ist auf 95% gesetzt über:
 
 - Für Touchdisplay ggf. Rotation in `sudo raspi-config` unter Display-Optionen setzen.
 - Wenn die Seite nicht lädt, zuerst Netzwerk prüfen.
+- Wenn der Hintergrund noch Standard ist, Setup erneut ausführen und neu starten:
+
+```bash
+sudo ./setup-autodarts-pi5.sh
+sudo reboot
+```
 - Wenn die Installation vorher mit `Package 'chromium-browser' has no installation candidate` abgebrochen ist, das aktualisierte Skript erneut ausführen:
 
 ```bash

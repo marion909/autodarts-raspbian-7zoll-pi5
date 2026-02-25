@@ -122,7 +122,44 @@ if [[ -f "${WALLPAPER_SRC}" ]]; then
   mkdir -p "$(dirname "${WALLPAPER_DST}")"
   install -m 0644 "${WALLPAPER_SRC}" "${WALLPAPER_DST}"
 
+  cat >/usr/local/bin/autodarts-set-wallpaper.sh <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+WALLPAPER="${WALLPAPER_DST}"
+if [[ ! -f "\${WALLPAPER}" ]]; then
+  exit 0
+fi
+
+for _ in 1 2 3 4 5; do
+  if command -v pcmanfm >/dev/null 2>&1; then
+    pcmanfm --set-wallpaper "\${WALLPAPER}" --wallpaper-mode=stretch >/dev/null 2>&1 || true
+  fi
+  sleep 1
+done
+EOF
+  chmod +x /usr/local/bin/autodarts-set-wallpaper.sh
+
+  cat >/etc/xdg/autostart/autodarts-wallpaper.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Autodarts Wallpaper
+Comment=Setzt den Desktop-Hintergrund beim Login
+Exec=/usr/local/bin/autodarts-set-wallpaper.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=false
+EOF
+
+  mkdir -p "${TARGET_HOME}/.config/pcmanfm/LXDE"
   mkdir -p "${TARGET_HOME}/.config/pcmanfm/LXDE-pi"
+  cat >"${TARGET_HOME}/.config/pcmanfm/LXDE/desktop-items-0.conf" <<EOF
+[*]
+wallpaper=${WALLPAPER_DST}
+wallpaper_mode=stretch
+desktop_bg=#000000
+show_wm_menu=0
+EOF
+
   cat >"${TARGET_HOME}/.config/pcmanfm/LXDE-pi/desktop-items-0.conf" <<EOF
 [*]
 wallpaper=${WALLPAPER_DST}
