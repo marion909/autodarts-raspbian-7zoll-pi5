@@ -5,6 +5,7 @@ Dieses Setup installiert auf Raspberry Pi OS mit Desktop:
 - Autodarts Desktop (Linux ARM64)
 - Chromium im Kiosk-Modus
 - automatischen Start von `https://play.autodarts.io/` direkt nach dem Einschalten
+- Bootscreen und Desktop-Hintergrund aus dem `assets`-Ordner
 
 ## 1) SD-Karte vorbereiten
 
@@ -46,6 +47,15 @@ Nach dem Neustart:
 - Autodarts Desktop ist bereits installiert
 - AutoDarts Desktop startet vor dem Browser
 - GNOME-Keyring-Prompt ist deaktiviert (kein "Unlock keyring" beim Boot)
+- eigener Bootscreen wird gesetzt (`assets/boot-splash.png`)
+- eigener Desktop-Hintergrund wird gesetzt (`assets/wallpaper.jpg`)
+
+## Assets
+
+Das Skript nutzt automatisch diese Dateien:
+
+- `assets/boot-splash.png`
+- `assets/wallpaper.jpg`
 
 ## AutoDarts Konfiguration
 

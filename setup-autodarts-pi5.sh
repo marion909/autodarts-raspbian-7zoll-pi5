@@ -13,6 +13,11 @@ if [[ -z "${TARGET_HOME}" ]]; then
   exit 1
 fi
 
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+ASSETS_DIR="${SCRIPT_DIR}/assets"
+BOOT_SPLASH_SRC="${ASSETS_DIR}/boot-splash.png"
+WALLPAPER_SRC="${ASSETS_DIR}/wallpaper.jpg"
+
 echo "[1/6] Pakete aktualisieren"
 apt-get update
 apt-get -y upgrade
@@ -97,6 +102,30 @@ Exec=/usr/local/bin/autodarts-kiosk.sh
 X-GNOME-Autostart-enabled=true
 NoDisplay=false
 EOF
+
+echo "[Bonus] Bootscreen und Hintergrund setzen"
+if [[ -f "${BOOT_SPLASH_SRC}" ]]; then
+  install -m 0644 "${BOOT_SPLASH_SRC}" /usr/share/plymouth/themes/pix/splash.png 2>/dev/null || true
+  install -m 0644 "${BOOT_SPLASH_SRC}" /usr/share/plymouth/themes/pix/splash-16x9.png 2>/dev/null || true
+  install -m 0644 "${BOOT_SPLASH_SRC}" /boot/firmware/splash.png 2>/dev/null || true
+  if command -v update-initramfs >/dev/null 2>&1; then
+    update-initramfs -u || true
+  fi
+fi
+
+if [[ -f "${WALLPAPER_SRC}" ]]; then
+  WALLPAPER_DST="/usr/share/backgrounds/autodarts-wallpaper.jpg"
+  install -m 0644 "${WALLPAPER_SRC}" "${WALLPAPER_DST}"
+
+  mkdir -p "${TARGET_HOME}/.config/pcmanfm/LXDE-pi"
+  cat >"${TARGET_HOME}/.config/pcmanfm/LXDE-pi/desktop-items-0.conf" <<EOF
+[*]
+wallpaper=${WALLPAPER_DST}
+wallpaper_mode=stretch
+desktop_bg=#000000
+show_wm_menu=0
+EOF
+fi
 
 if command -v raspi-config >/dev/null 2>&1; then
   echo "[6/6] Auto-Login auf Desktop aktivieren"
