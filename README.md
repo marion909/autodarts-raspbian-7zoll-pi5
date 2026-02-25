@@ -3,7 +3,7 @@
 Dieses Setup installiert auf Raspberry Pi OS mit Desktop:
 
 - Autodarts Desktop (Linux ARM64)
-- Chromium im Kiosk-Modus
+- Chromium im Vollbildmodus (Start-Fullscreen)
 - automatischen Start von `https://play.autodarts.io/` direkt nach dem Einschalten
 - Bootscreen und Desktop-Hintergrund aus dem `assets`-Ordner
 
@@ -42,7 +42,7 @@ chmod +x start-autodarts.sh
 Nach dem Neustart:
 
 - meldet sich der Pi im Desktop automatisch an
-- startet Chromium im Vordergrund als Vollbild-Kiosk
+- startet Chromium im Vordergrund im Vollbildmodus
 - öffnet direkt `https://play.autodarts.io/`
 - Autodarts Desktop ist bereits installiert
 - AutoDarts Desktop startet vor dem Browser
