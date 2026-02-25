@@ -77,6 +77,7 @@ KIOSK_PROFILE="${HOME}/.config/autodarts-kiosk"
 mkdir -p "${KIOSK_PROFILE}"
 
 "${CHROMIUM_BIN}" \
+  --kiosk \
   --start-fullscreen \
   --force-device-scale-factor=0.85 \
   --password-store=basic \
