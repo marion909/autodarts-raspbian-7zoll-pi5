@@ -115,6 +115,11 @@ fi
 
 if [[ -f "${WALLPAPER_SRC}" ]]; then
   WALLPAPER_DST="/usr/share/backgrounds/autodarts-wallpaper.jpg"
+  if [[ ! -d "/usr/share/backgrounds" ]]; then
+    mkdir -p /usr/local/share/backgrounds
+    WALLPAPER_DST="/usr/local/share/backgrounds/autodarts-wallpaper.jpg"
+  fi
+  mkdir -p "$(dirname "${WALLPAPER_DST}")"
   install -m 0644 "${WALLPAPER_SRC}" "${WALLPAPER_DST}"
 
   mkdir -p "${TARGET_HOME}/.config/pcmanfm/LXDE-pi"
