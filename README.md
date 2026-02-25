@@ -47,6 +47,14 @@ Nach dem Neustart:
 - AutoDarts Desktop startet vor dem Browser
 - GNOME-Keyring-Prompt ist deaktiviert (kein "Unlock keyring" beim Boot)
 
+## AutoDarts Konfiguration
+
+Die AutoDarts-Konfigurationsseite erreichst du im Netzwerk über die IP des Raspberry Pi auf Port `3180`:
+
+```text
+http://<RASPBERRY_PI_IP>:3180
+```
+
 ## Optional: URL anpassen
 
 Die URL liegt in:
