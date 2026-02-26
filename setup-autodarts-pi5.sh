@@ -17,6 +17,8 @@ SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 ASSETS_DIR="${SCRIPT_DIR}/assets"
 BOOT_SPLASH_SRC="${ASSETS_DIR}/boot-splash.png"
 WALLPAPER_SRC="${ASSETS_DIR}/wallpaper.jpg"
+AUTODARTS_EXTENSION_ID="oolfddhehmbpdnlmoljmllcdggmkgihh"
+AUTODARTS_EXTENSION_UPDATE_URL="https://clients2.google.com/service/update2/crx"
 
 echo "[1/6] Pakete aktualisieren"
 apt-get update
@@ -45,6 +47,18 @@ tmp_deb="/tmp/autodarts-desktop_arm64.deb"
 curl -fL "${AUTODARTS_URL}" -o "${tmp_deb}"
 apt-get install -y "${tmp_deb}"
 rm -f "${tmp_deb}"
+
+echo "[Bonus] Chrome Extension 'Tools for Autodarts' konfigurieren"
+for policy_dir in /etc/chromium/policies/managed /etc/chromium-browser/policies/managed; do
+  mkdir -p "${policy_dir}"
+  cat >"${policy_dir}/autodarts-tools-extension.json" <<EOF
+{
+  "ExtensionInstallForcelist": [
+    "${AUTODARTS_EXTENSION_ID};${AUTODARTS_EXTENSION_UPDATE_URL}"
+  ]
+}
+EOF
+done
 
 echo "[4/6] Kiosk Startskript anlegen"
 cat >/usr/local/bin/autodarts-kiosk.sh <<'EOF'

@@ -6,6 +6,7 @@ Dieses Setup installiert auf Raspberry Pi OS mit Desktop:
 - Chromium im Kiosk-Modus
 - automatischen Start von `https://play.autodarts.io/` direkt nach dem Einschalten
 - Bootscreen und Desktop-Hintergrund aus dem `assets`-Ordner
+- installiert automatisch die Chrome-Erweiterung "Tools for Autodarts"
 
 ## 1) SD-Karte vorbereiten
 
@@ -66,6 +67,14 @@ Die AutoDarts-Konfigurationsseite erreichst du im Netzwerk über die IP des Rasp
 ```text
 http://<RASPBERRY_PI_IP>:3180
 ```
+
+## Chrome-Plugin
+
+Die Erweiterung **Tools for Autodarts** wird per Chromium-Policy automatisch installiert:
+
+- https://chromewebstore.google.com/detail/tools-for-autodarts/oolfddhehmbpdnlmoljmllcdggmkgihh
+
+Nach `sudo ./setup-autodarts-pi5.sh` ggf. einmal neu starten bzw. Chromium neu starten.
 
 ## Optional: URL anpassen
 
