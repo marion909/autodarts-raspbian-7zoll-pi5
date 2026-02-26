@@ -20,6 +20,44 @@ WALLPAPER_SRC="${ASSETS_DIR}/wallpaper.jpg"
 AUTODARTS_EXTENSION_ID="oolfddhehmbpdnlmoljmllcdggmkgihh"
 AUTODARTS_EXTENSION_UPDATE_URL="https://clients2.google.com/service/update2/crx"
 
+ROTATION_OPTION="${ROTATION_OPTION:-}"
+if [[ -z "${ROTATION_OPTION}" && -t 0 ]]; then
+  echo ""
+  echo "Screen Rotation wählen:"
+  echo "  1) Keine Rotation"
+  echo "  2) 90°"
+  echo "  3) -90°"
+  echo "  4) 180°"
+  read -r -p "Option [1-4, Enter=1]: " ROTATION_OPTION
+fi
+ROTATION_OPTION="${ROTATION_OPTION:-1}"
+
+ROTATION_XRANDR="normal"
+ROTATION_LABEL="0"
+case "${ROTATION_OPTION}" in
+  1)
+    ROTATION_XRANDR="normal"
+    ROTATION_LABEL="0"
+    ;;
+  2)
+    ROTATION_XRANDR="right"
+    ROTATION_LABEL="90"
+    ;;
+  3)
+    ROTATION_XRANDR="left"
+    ROTATION_LABEL="-90"
+    ;;
+  4)
+    ROTATION_XRANDR="inverted"
+    ROTATION_LABEL="180"
+    ;;
+  *)
+    echo "Ungültige Rotation-Option '${ROTATION_OPTION}', nutze 1 (keine Rotation)."
+    ROTATION_XRANDR="normal"
+    ROTATION_LABEL="0"
+    ;;
+esac
+
 echo "[1/6] Pakete aktualisieren"
 apt-get update
 apt-get -y upgrade
@@ -34,6 +72,8 @@ apt-get install -y --no-install-recommends \
   "${CHROMIUM_PACKAGE}" \
   curl \
   ca-certificates \
+  dconf-cli \
+  onboard \
   unclutter \
   x11-xserver-utils
 
@@ -59,6 +99,83 @@ for policy_dir in /etc/chromium/policies/managed /etc/chromium-browser/policies/
 }
 EOF
 done
+
+echo "[Bonus] AutoDarts Update-Check bei jedem Boot aktivieren"
+cat >/usr/local/bin/autodarts-update-check.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+LOG_FILE="/var/log/autodarts-update.log"
+
+log() {
+  echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >>"${LOG_FILE}"
+}
+
+if ! command -v curl >/dev/null 2>&1; then
+  log "curl fehlt, Update-Check übersprungen"
+  exit 0
+fi
+
+if ! dpkg -s autodarts-desktop >/dev/null 2>&1; then
+  log "autodarts-desktop ist nicht installiert, Update-Check übersprungen"
+  exit 0
+fi
+
+CURRENT_VERSION="$(dpkg-query -W -f='${Version}' autodarts-desktop 2>/dev/null || true)"
+LATEST_URL="$(curl -fsSL https://autodarts.io/downloads | grep -oE 'https://get\.autodarts\.io/desktop/linux/arm64/[^" ]+\.deb' | head -n1 || true)"
+
+if [[ -z "${LATEST_URL}" ]]; then
+  log "Konnte aktuelle ARM64-URL nicht ermitteln"
+  exit 0
+fi
+
+LATEST_FILE="$(basename "${LATEST_URL}")"
+LATEST_VERSION="$(echo "${LATEST_FILE}" | sed -nE 's/^autodarts-desktop_([^_]+)_arm64\.deb$/\1/p')"
+
+if [[ -z "${LATEST_VERSION}" ]]; then
+  log "Konnte Versionsnummer aus ${LATEST_FILE} nicht lesen"
+  exit 0
+fi
+
+if dpkg --compare-versions "${LATEST_VERSION}" le "${CURRENT_VERSION}"; then
+  log "Kein Update nötig (installiert=${CURRENT_VERSION}, aktuell=${LATEST_VERSION})"
+  exit 0
+fi
+
+TMP_DEB="/tmp/autodarts-desktop-update_arm64.deb"
+log "Update gefunden: ${CURRENT_VERSION} -> ${LATEST_VERSION}"
+
+if ! curl -fL "${LATEST_URL}" -o "${TMP_DEB}"; then
+  log "Download fehlgeschlagen: ${LATEST_URL}"
+  exit 0
+fi
+
+if apt-get install -y "${TMP_DEB}"; then
+  log "Update erfolgreich installiert: ${LATEST_VERSION}"
+else
+  log "Update-Installation fehlgeschlagen"
+fi
+
+rm -f "${TMP_DEB}"
+EOF
+chmod +x /usr/local/bin/autodarts-update-check.sh
+
+cat >/etc/systemd/system/autodarts-update-check.service <<'EOF'
+[Unit]
+Description=AutoDarts Update Check at boot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/autodarts-update-check.sh
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+systemctl daemon-reload
+systemctl enable autodarts-update-check.service >/dev/null 2>&1 || true
 
 echo "[4/6] Kiosk Startskript anlegen"
 cat >/usr/local/bin/autodarts-kiosk.sh <<'EOF'
@@ -91,7 +208,6 @@ KIOSK_PROFILE="${HOME}/.config/autodarts-kiosk"
 mkdir -p "${KIOSK_PROFILE}"
 
 "${CHROMIUM_BIN}" \
-  --kiosk \
   --start-fullscreen \
   --force-device-scale-factor=0.85 \
   --password-store=basic \
@@ -115,6 +231,77 @@ Comment=Startet play.autodarts.io im Vollbild
 Exec=/usr/local/bin/autodarts-kiosk.sh
 X-GNOME-Autostart-enabled=true
 NoDisplay=false
+EOF
+
+cat >/etc/xdg/autostart/autodarts-onboard.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Autodarts On-Screen Keyboard
+Comment=Startet Onboard mit Auto-Show
+Exec=/usr/local/bin/autodarts-onboard.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=false
+EOF
+
+cat >/usr/local/bin/autodarts-onboard.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+sleep 4
+pkill -x onboard >/dev/null 2>&1 || true
+exec onboard -a
+EOF
+chmod +x /usr/local/bin/autodarts-onboard.sh
+
+mkdir -p /etc/dconf/db/local.d
+cat >/etc/dconf/db/local.d/00-autodarts-onboard <<'EOF'
+[org/onboard]
+auto-show=true
+
+[org/onboard/window]
+force-to-top=true
+docking-enabled=true
+docking-edge='bottom'
+docking-shrink-workarea=false
+EOF
+if command -v dconf >/dev/null 2>&1; then
+  dconf update || true
+fi
+
+cat >/usr/local/bin/autodarts-rotate-display.sh <<EOF
+#!/usr/bin/env bash
+set -euo pipefail
+
+ROTATE="${ROTATION_XRANDR}"
+
+for _ in 1 2 3 4 5 6 7 8; do
+  PRIMARY_DISPLAY="\$(xrandr --query | awk '/ connected primary / {print \$1; exit}')"
+  if [[ -z "\${PRIMARY_DISPLAY}" ]]; then
+    PRIMARY_DISPLAY="\$(xrandr --query | awk '/ connected / {print \$1; exit}')"
+  fi
+  if [[ -n "\${PRIMARY_DISPLAY}" ]]; then
+    xrandr --output "\${PRIMARY_DISPLAY}" --rotate "\${ROTATE}" >/dev/null 2>&1 || true
+    exit 0
+  fi
+  sleep 1
+done
+EOF
+chmod +x /usr/local/bin/autodarts-rotate-display.sh
+
+cat >/etc/xdg/autostart/autodarts-rotation.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Autodarts Screen Rotation
+Comment=Setzt Bildschirmrotation beim Login
+Exec=/usr/local/bin/autodarts-rotate-display.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=false
+EOF
+
+cat >/etc/default/autodarts-display-rotation <<EOF
+ROTATION_OPTION=${ROTATION_OPTION}
+ROTATION_DEGREES=${ROTATION_LABEL}
+ROTATION_XRANDR=${ROTATION_XRANDR}
 EOF
 
 echo "[Bonus] Bootscreen und Hintergrund setzen"

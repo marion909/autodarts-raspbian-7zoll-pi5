@@ -3,10 +3,13 @@
 Dieses Setup installiert auf Raspberry Pi OS mit Desktop:
 
 - Autodarts Desktop (Linux ARM64)
-- Chromium im Kiosk-Modus
+- Chromium im Vollbildmodus (Start-Fullscreen)
 - automatischen Start von `https://play.autodarts.io/` direkt nach dem Einschalten
 - Bootscreen und Desktop-Hintergrund aus dem `assets`-Ordner
 - installiert automatisch die Chrome-Erweiterung "Tools for Autodarts"
+- startet die Bildschirmtastatur (Onboard) mit Auto-Show bei Eingabefeldern
+- Onboard wird für Fullscreen optimiert (force-to-top + Dock unten)
+- prüft bei jedem Pi-Start auf AutoDarts-Updates und installiert sie automatisch
 
 ## 1) SD-Karte vorbereiten
 
@@ -29,6 +32,19 @@ sudo ./setup-autodarts-pi5.sh
 sudo reboot
 ```
 
+Während des Setups kannst du die Screen-Rotation wählen:
+
+- `1` = `keine Rotation`
+- `2` = `90°`
+- `3` = `-90°`
+- `4` = `180°`
+
+Optional ohne Rückfrage (z. B. bei automatischem Setup):
+
+```bash
+sudo ROTATION_OPTION=2 ./setup-autodarts-pi5.sh
+```
+
 ## AutoDarts manuell starten
 
 Im Projekt liegt ein Startskript, das `DISPLAY`/`XAUTHORITY` korrekt setzt:
@@ -43,7 +59,7 @@ chmod +x start-autodarts.sh
 Nach dem Neustart:
 
 - meldet sich der Pi im Desktop automatisch an
-- startet Chromium im Vordergrund als Vollbild-Kiosk
+- startet Chromium im Vordergrund im Vollbildmodus
 - öffnet direkt `https://play.autodarts.io/`
 - Autodarts Desktop ist bereits installiert
 - AutoDarts Desktop startet vor dem Browser
@@ -88,7 +104,16 @@ Der Browser-Zoom ist auf 95% gesetzt über:
 
 ## Hinweise
 
-- Für Touchdisplay ggf. Rotation in `sudo raspi-config` unter Display-Optionen setzen.
+- Die gewählte Rotation wird beim Login automatisch angewendet.
+- AutoDarts-Update-Check läuft bei jedem Boot über `systemd` (`autodarts-update-check.service`).
+- Log-Datei für Updates: `/var/log/autodarts-update.log`
+- Wenn die Bildschirmtastatur nicht automatisch erscheint, Setup erneut ausführen und neu starten:
+
+```bash
+sudo ./setup-autodarts-pi5.sh
+sudo reboot
+```
+- Für Fullscreen wird Onboard verzögert gestartet und über dconf mit `force-to-top` konfiguriert.
 - Wenn die Seite nicht lädt, zuerst Netzwerk prüfen.
 - Wenn der Hintergrund noch Standard ist, Setup erneut ausführen und neu starten:
 
