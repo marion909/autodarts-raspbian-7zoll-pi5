@@ -7,8 +7,11 @@ Dieses Setup installiert auf Raspberry Pi OS mit Desktop:
 - automatischen Start von `https://play.autodarts.io/` direkt nach dem Einschalten
 - Bootscreen und Desktop-Hintergrund aus dem `assets`-Ordner
 - installiert automatisch die Chrome-Erweiterung "Tools for Autodarts"
-- startet die Bildschirmtastatur (Onboard) mit Auto-Show bei Eingabefeldern
-- Onboard wird für Fullscreen optimiert (force-to-top + Dock unten)
+- startet die Bildschirmtastatur (Onboard) im Fullscreen als Dock unten
+- Onboard wird im Fullscreen zuverlässig above/always-on-top gehalten
+- Fullscreen-Kompatibilität verbessert (`--enable-virtual-keyboard` + Onboard always-on-top)
+- Setup erzwingt X11-Session für bessere Tastatur-Funktion im Fullscreen
+- Accessibility-Stack (AT-SPI) wird aktiviert, damit Auto-Show im Fullscreen zuverlässiger funktioniert
 - prüft bei jedem Pi-Start auf AutoDarts-Updates und installiert sie automatisch
 
 ## 1) SD-Karte vorbereiten
@@ -104,10 +107,13 @@ Der Browser-Zoom ist auf 95% gesetzt über:
 
 ## Hinweise
 
+- Aktueller Stand: Die On-Screen-Tastatur funktioniert im Fullscreen-Modus noch nicht zuverlässig.
 - Die gewählte Rotation wird beim Login automatisch angewendet.
+- Für On-Screen-Keyboard im Fullscreen wird Chromium mit X11 + VirtualKeyboard gestartet; die Tastatur wird als Dock unten angezeigt.
+- Warnungen wie `mousetweaks ... not found` sind unkritisch; entscheidend ist, dass `onboard` läuft und Accessibility aktiv ist.
 - AutoDarts-Update-Check läuft bei jedem Boot über `systemd` (`autodarts-update-check.service`).
 - Log-Datei für Updates: `/var/log/autodarts-update.log`
-- Wenn die Bildschirmtastatur nicht automatisch erscheint, Setup erneut ausführen und neu starten:
+- Wenn die Bildschirmtastatur fehlt, Setup erneut ausführen und neu starten:
 
 ```bash
 sudo ./setup-autodarts-pi5.sh
