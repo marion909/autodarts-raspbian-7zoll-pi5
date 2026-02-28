@@ -1,18 +1,19 @@
 # Raspberry Pi 5 + Touchdisplay + AutoDarts (Autostart)
 
-Dieses Setup installiert auf Raspberry Pi OS mit Desktop:
+Produktionsnahes Setup für Raspberry Pi OS Desktop mit automatischem Kiosk-Start für AutoDarts.
 
-- Autodarts Desktop (Linux ARM64)
-- Chromium im Vollbildmodus (Start-Fullscreen)
-- automatischen Start von `https://play.autodarts.io/` direkt nach dem Einschalten
-- Bootscreen und Desktop-Hintergrund aus dem `assets`-Ordner
-- installiert automatisch die Chrome-Erweiterung "Tools for Autodarts"
-- startet die Bildschirmtastatur (Onboard) im Fullscreen als Dock unten
-- Onboard wird im Fullscreen zuverlässig above/always-on-top gehalten
-- Fullscreen-Kompatibilität verbessert (`--enable-virtual-keyboard` + Onboard always-on-top)
-- Setup erzwingt X11-Session für bessere Tastatur-Funktion im Fullscreen
-- Accessibility-Stack (AT-SPI) wird aktiviert, damit Auto-Show im Fullscreen zuverlässiger funktioniert
-- prüft bei jedem Pi-Start auf AutoDarts-Updates und installiert sie automatisch
+## Features (aktueller Stand)
+
+- installiert **AutoDarts Desktop** (Linux ARM64)
+- installiert **Chromium** und startet `https://play.autodarts.io/` im Fullscreen
+- installiert automatisch die Chrome-Erweiterung **Tools for Autodarts** per Policy
+- unterdrückt typische Chromium-Dialoge wie **Restore pages / First run / Default browser check**
+- setzt beim Login die gewünschte **Screen-Rotation**
+- setzt beim Login zusätzlich für DSI: `xrandr --output DSI-2 --mode 800x480 --scale 1.2x1.2 --primary`
+- spiegelt DSI automatisch auf HDMI (wenn beide Displays verbunden sind)
+- aktiviert Auto-Login (Desktop) und erzwingt X11-Session
+- setzt optional Boot-Splash und Desktop-Wallpaper aus `assets/`
+- prüft bei jedem Boot auf AutoDarts-Updates (`systemd` Service)
 
 ## 1) SD-Karte vorbereiten
 
@@ -27,108 +28,87 @@ Dieses Setup installiert auf Raspberry Pi OS mit Desktop:
 
 ## 2) Setup ausführen
 
-Dateien auf den Pi kopieren und dann:
-
 ```bash
 chmod +x setup-autodarts-pi5.sh
 sudo ./setup-autodarts-pi5.sh
 sudo reboot
 ```
 
-Während des Setups kannst du die Screen-Rotation wählen:
+Während des Setups kannst du die Rotation wählen:
 
-- `1` = `keine Rotation`
+- `1` = keine Rotation
 - `2` = `90°`
 - `3` = `-90°`
 - `4` = `180°`
 
-Optional ohne Rückfrage (z. B. bei automatischem Setup):
+Optional ohne Rückfrage:
 
 ```bash
 sudo ROTATION_OPTION=2 ./setup-autodarts-pi5.sh
 ```
 
+## Ergebnis nach dem Neustart
+
+- Desktop-Login erfolgt automatisch
+- AutoDarts Desktop startet
+- Chromium startet im Vollbild mit `https://play.autodarts.io/`
+- Restore/First-Run-Dialoge sind weitgehend unterdrückt
+- DSI-Skalierung und Rotation werden beim Login gesetzt
+- HDMI wird (bei Verbindung) auf DSI gespiegelt
+- GNOME-Keyring-Prompt ist deaktiviert
+
+## Display-Verhalten
+
+- DSI-Fix im Setup: `DSI-2` auf `800x480` mit `scale 1.2x1.2`
+- Mirror-Skript erkennt Ausgänge dynamisch (`DSI-*` und `HDMI-*`) und nutzt `--same-as`
+- Hinweis: bei stark abweichenden Seitenverhältnissen (DSI vs TV) können Ränder/Skalierungseffekte auftreten
+
 ## AutoDarts manuell starten
 
-Im Projekt liegt ein Startskript, das `DISPLAY`/`XAUTHORITY` korrekt setzt:
+Im Projekt liegt ein Startskript, das `DISPLAY` und `XAUTHORITY` korrekt setzt:
 
 ```bash
 chmod +x start-autodarts.sh
 ./start-autodarts.sh
 ```
 
-## Ergebnis
-
-Nach dem Neustart:
-
-- meldet sich der Pi im Desktop automatisch an
-- startet Chromium im Vordergrund im Vollbildmodus
-- öffnet direkt `https://play.autodarts.io/`
-- Autodarts Desktop ist bereits installiert
-- AutoDarts Desktop startet vor dem Browser
-- GNOME-Keyring-Prompt ist deaktiviert (kein "Unlock keyring" beim Boot)
-- eigener Bootscreen wird gesetzt (`assets/boot-splash.png`)
-- eigener Desktop-Hintergrund wird gesetzt (`assets/wallpaper.jpg`)
-
-## Assets
-
-Das Skript nutzt automatisch diese Dateien:
-
-- `assets/boot-splash.png`
-- `assets/wallpaper.jpg`
-
-Der Desktop-Hintergrund wird beim Login automatisch gesetzt (Autostart-Job).
-
 ## AutoDarts Konfiguration
 
-Die AutoDarts-Konfigurationsseite erreichst du im Netzwerk über die IP des Raspberry Pi auf Port `3180`:
+AutoDarts-Konfigurationsseite im LAN:
 
 ```text
 http://<RASPBERRY_PI_IP>:3180
 ```
 
-## Chrome-Plugin
-
-Die Erweiterung **Tools for Autodarts** wird per Chromium-Policy automatisch installiert:
+## Chrome-Plugin (automatisch)
 
 - https://chromewebstore.google.com/detail/tools-for-autodarts/oolfddhehmbpdnlmoljmllcdggmkgihh
 
-Nach `sudo ./setup-autodarts-pi5.sh` ggf. einmal neu starten bzw. Chromium neu starten.
+## Wichtige Pfade
 
-## Optional: URL anpassen
+- Kiosk-Skript: `/usr/local/bin/autodarts-kiosk.sh`
+- Rotations-Skript: `/usr/local/bin/autodarts-rotate-display.sh`
+- Mirror-Skript: `/usr/local/bin/autodarts-mirror-display.sh`
+- Update-Log: `/var/log/autodarts-update.log`
+- Update-Service: `autodarts-update-check.service`
 
-Die URL liegt in:
+Aktueller Chromium Skalierungsfaktor im Kiosk:
 
-- `/usr/local/bin/autodarts-kiosk.sh`
+- `--force-device-scale-factor=0.85`
 
-Der Browser-Zoom ist auf 95% gesetzt über:
+## Assets
 
-- `--force-device-scale-factor=0.95`
+Optional genutzte Dateien:
 
-## Hinweise
+- `assets/boot-splash.png`
+- `assets/wallpaper.jpg`
 
-- Aktueller Stand: Die On-Screen-Tastatur funktioniert im Fullscreen-Modus noch nicht zuverlässig.
-- Die gewählte Rotation wird beim Login automatisch angewendet.
-- Für On-Screen-Keyboard im Fullscreen wird Chromium mit X11 + VirtualKeyboard gestartet; die Tastatur wird als Dock unten angezeigt.
-- Warnungen wie `mousetweaks ... not found` sind unkritisch; entscheidend ist, dass `onboard` läuft und Accessibility aktiv ist.
-- AutoDarts-Update-Check läuft bei jedem Boot über `systemd` (`autodarts-update-check.service`).
-- Log-Datei für Updates: `/var/log/autodarts-update.log`
-- Wenn die Bildschirmtastatur fehlt, Setup erneut ausführen und neu starten:
+## Troubleshooting
 
-```bash
-sudo ./setup-autodarts-pi5.sh
-sudo reboot
-```
-- Für Fullscreen wird Onboard verzögert gestartet und über dconf mit `force-to-top` konfiguriert.
-- Wenn die Seite nicht lädt, zuerst Netzwerk prüfen.
-- Wenn der Hintergrund noch Standard ist, Setup erneut ausführen und neu starten:
+- Falls Seite nicht lädt: Netzwerkverbindung prüfen
+- Falls Displays falsch sind: Setup erneut ausführen und neu starten
 
 ```bash
 sudo ./setup-autodarts-pi5.sh
 sudo reboot
-```
-- Wenn die Installation vorher mit `Package 'chromium-browser' has no installation candidate` abgebrochen ist, das aktualisierte Skript erneut ausführen:
-
-```bash
-sudo ./setup-autodarts-pi5.sh
 ```

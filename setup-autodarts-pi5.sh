@@ -72,8 +72,6 @@ apt-get install -y --no-install-recommends \
   "${CHROMIUM_PACKAGE}" \
   curl \
   ca-certificates \
-  dconf-cli \
-  onboard \
   unclutter \
   x11-xserver-utils
 
@@ -189,6 +187,10 @@ xset -dpms || true
 xset s noblank || true
 unclutter -idle 0.5 -root &
 
+if [[ -x /usr/local/bin/autodarts-mirror-display.sh ]]; then
+  /usr/local/bin/autodarts-mirror-display.sh || true
+fi
+
 while ! curl -Is https://play.autodarts.io >/dev/null 2>&1; do
   sleep 2
 done
@@ -207,8 +209,20 @@ fi
 KIOSK_PROFILE="${HOME}/.config/autodarts-kiosk"
 mkdir -p "${KIOSK_PROFILE}"
 
+PREF_FILE="${KIOSK_PROFILE}/Default/Preferences"
+mkdir -p "${KIOSK_PROFILE}/Default"
+if [[ -f "${PREF_FILE}" ]]; then
+  sed -i 's/"exited_cleanly":false/"exited_cleanly":true/g' "${PREF_FILE}" || true
+  sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/g' "${PREF_FILE}" || true
+fi
+
 "${CHROMIUM_BIN}" \
+  --ozone-platform=x11 \
   --start-fullscreen \
+  --enable-virtual-keyboard \
+  --enable-features=VirtualKeyboard \
+  --force-renderer-accessibility \
+  --touch-events=enabled \
   --force-device-scale-factor=0.85 \
   --password-store=basic \
   --user-data-dir="${KIOSK_PROFILE}" \
@@ -216,6 +230,8 @@ mkdir -p "${KIOSK_PROFILE}"
   --noerrdialogs \
   --disable-infobars \
   --disable-session-crashed-bubble \
+  --no-first-run \
+  --no-default-browser-check \
   --autoplay-policy=no-user-gesture-required \
   "${URL}"
 EOF
@@ -233,41 +249,6 @@ X-GNOME-Autostart-enabled=true
 NoDisplay=false
 EOF
 
-cat >/etc/xdg/autostart/autodarts-onboard.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Autodarts On-Screen Keyboard
-Comment=Startet Onboard mit Auto-Show
-Exec=/usr/local/bin/autodarts-onboard.sh
-X-GNOME-Autostart-enabled=true
-NoDisplay=false
-EOF
-
-cat >/usr/local/bin/autodarts-onboard.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-sleep 4
-pkill -x onboard >/dev/null 2>&1 || true
-exec onboard -a
-EOF
-chmod +x /usr/local/bin/autodarts-onboard.sh
-
-mkdir -p /etc/dconf/db/local.d
-cat >/etc/dconf/db/local.d/00-autodarts-onboard <<'EOF'
-[org/onboard]
-auto-show=true
-
-[org/onboard/window]
-force-to-top=true
-docking-enabled=true
-docking-edge='bottom'
-docking-shrink-workarea=false
-EOF
-if command -v dconf >/dev/null 2>&1; then
-  dconf update || true
-fi
-
 cat >/usr/local/bin/autodarts-rotate-display.sh <<EOF
 #!/usr/bin/env bash
 set -euo pipefail
@@ -281,6 +262,7 @@ for _ in 1 2 3 4 5 6 7 8; do
   fi
   if [[ -n "\${PRIMARY_DISPLAY}" ]]; then
     xrandr --output "\${PRIMARY_DISPLAY}" --rotate "\${ROTATE}" >/dev/null 2>&1 || true
+    xrandr --output DSI-2 --mode 800x480 --scale 1.2x1.2 --primary >/dev/null 2>&1 || true
     exit 0
   fi
   sleep 1
@@ -288,12 +270,55 @@ done
 EOF
 chmod +x /usr/local/bin/autodarts-rotate-display.sh
 
+cat >/usr/local/bin/autodarts-mirror-display.sh <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+TARGET_USER="${SUDO_USER:-${USER:-pi}}"
+TARGET_HOME="$(getent passwd "${TARGET_USER}" | cut -d: -f6)"
+
+export DISPLAY="${DISPLAY:-:0}"
+if [[ -n "${TARGET_HOME}" ]]; then
+  export XAUTHORITY="${XAUTHORITY:-${TARGET_HOME}/.Xauthority}"
+fi
+
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if ! xrandr --query >/dev/null 2>&1; then
+    sleep 1
+    continue
+  fi
+
+  DSI_OUTPUT="$(xrandr --query | awk '/^DSI-[0-9]+ connected/ {print $1; exit}')"
+  HDMI_OUTPUT="$(xrandr --query | awk '/^HDMI-[0-9]+ connected/ {print $1; exit}')"
+
+  if [[ -n "${DSI_OUTPUT}" && -n "${HDMI_OUTPUT}" ]]; then
+    xrandr --output "${HDMI_OUTPUT}" --same-as "${DSI_OUTPUT}" --auto >/dev/null 2>&1 || true
+    exit 0
+  fi
+
+  sleep 1
+done
+
+exit 0
+EOF
+chmod +x /usr/local/bin/autodarts-mirror-display.sh
+
 cat >/etc/xdg/autostart/autodarts-rotation.desktop <<'EOF'
 [Desktop Entry]
 Type=Application
 Name=Autodarts Screen Rotation
 Comment=Setzt Bildschirmrotation beim Login
 Exec=/usr/local/bin/autodarts-rotate-display.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=false
+EOF
+
+cat >/etc/xdg/autostart/autodarts-mirror.desktop <<'EOF'
+[Desktop Entry]
+Type=Application
+Name=Autodarts Display Mirror
+Comment=Spiegelt DSI auf HDMI beim Login
+Exec=/usr/local/bin/autodarts-mirror-display.sh
 X-GNOME-Autostart-enabled=true
 NoDisplay=false
 EOF
@@ -371,6 +396,9 @@ EOF
 fi
 
 if command -v raspi-config >/dev/null 2>&1; then
+  echo "[6/6] X11-Session für On-Screen-Keyboard aktivieren"
+  raspi-config nonint do_wayland W1 || true
+
   echo "[6/6] Auto-Login auf Desktop aktivieren"
   raspi-config nonint do_boot_behaviour B4 || true
 else
