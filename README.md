@@ -19,6 +19,9 @@ Danach neu starten:
 sudo reboot
 ```
 
+Am Ende zeigt das Setup die Adressen der AutoDarts-Weboberfläche an (IP des Pi mit Port `3180`, z. B. `http://192.168.1.50:3180`),
+über die nach dem Neustart Kamera, Board und Konto eingerichtet werden.
+
 Das Skript fragt während der Installation nach der Screen-Rotation. Ohne Rückfrage:
 
 ```bash

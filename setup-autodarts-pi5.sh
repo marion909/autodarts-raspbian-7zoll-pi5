@@ -230,5 +230,32 @@ done
 
 chown -R "${TARGET_USER}:" "${TARGET_HOME}/.config" || true
 
+AUTODARTS_WEB_PORT=3180
+IPV4_REGEX='^[0-9]+(\.[0-9]+){3}$'
+
 echo
-echo "Fertig. Bitte neu starten: sudo reboot"
+echo "=============================================================="
+echo " Fertig. Bitte neu starten:  sudo reboot"
+echo "=============================================================="
+echo
+echo "Einrichtung von AutoDarts (Kamera, Board, Konto) nach dem Neustart"
+echo "im Browser eines beliebigen Geräts im selben Netzwerk:"
+echo
+
+found_ip=0
+while read -r ip; do
+  if [[ "${ip}" =~ ${IPV4_REGEX} ]]; then
+    echo "  http://${ip}:${AUTODARTS_WEB_PORT}"
+    found_ip=1
+  fi
+done < <(hostname -I 2>/dev/null | tr ' ' '\n')
+
+if [[ "${found_ip}" -eq 0 ]]; then
+  echo "  http://<IP-des-Pi>:${AUTODARTS_WEB_PORT}   (keine IP erkannt, Netzwerk prüfen; IP anzeigen: hostname -I)"
+fi
+echo "  http://$(hostname).local:${AUTODARTS_WEB_PORT}   (falls mDNS im Netzwerk funktioniert)"
+echo
+echo "Konfigurationsdatei:   ${TARGET_HOME}/.config/autodarts-desktop/config.toml"
+echo "Update-Kanal:          ${AUTODARTS_CHANNEL} (/etc/default/autodarts-update)"
+echo "Display-Einstellungen: /etc/default/autodarts-display (Rotation ${ROTATION_LABEL}°)"
+echo "Update-Log:            /var/log/autodarts-update.log"
