@@ -73,6 +73,16 @@ DSI_MODE="${DSI_MODE:-800x480}"
 DSI_SCALE="${DSI_SCALE:-1.2x1.2}"
 MIRROR_HDMI="${MIRROR_HDMI:-1}"
 
+# AutoDarts-Release-Kanal: stable (Standard) oder beta
+AUTODARTS_CHANNEL="${AUTODARTS_CHANNEL:-stable}"
+case "${AUTODARTS_CHANNEL}" in
+  stable | beta) ;;
+  *)
+    echo "Ungültiger AUTODARTS_CHANNEL '${AUTODARTS_CHANNEL}' (erlaubt: stable, beta)."
+    exit 1
+    ;;
+esac
+
 # --- 1) Pakete ---------------------------------------------------------------
 step "Pakete aktualisieren"
 apt-get update
@@ -88,9 +98,18 @@ fi
 apt-get install -y --no-install-recommends \
   "${CHROMIUM_PACKAGE}" \
   curl \
+  jq \
   ca-certificates \
   unclutter \
   x11-xserver-utils
+
+# FUSE 2 wird für AppImages benötigt (Paketname unterscheidet sich je nach Debian-Version).
+# Ohne FUSE fällt der Starter automatisch auf "entpacken und ausführen" zurück.
+for fuse_pkg in libfuse2t64 libfuse2; do
+  if apt-cache show "${fuse_pkg}" >/dev/null 2>&1; then
+    apt-get install -y "${fuse_pkg}" && break
+  fi
+done
 
 # --- 3) Skripte, Service, Autostart ------------------------------------------
 step "Skripte, Update-Service und Autostart installieren"
@@ -106,6 +125,9 @@ for script in autodarts-kiosk.sh autodarts-display.sh autodarts-update-check.sh 
   install -D -m 0755 "${FILES_DIR}/bin/${script}" "/usr/local/bin/${script}"
 done
 
+install -D -m 0755 "${FILES_DIR}/bin/autodarts-desktop" /usr/local/bin/autodarts-desktop
+printf 'AUTODARTS_CHANNEL=%q\n' "${AUTODARTS_CHANNEL}" >/etc/default/autodarts-update
+
 install -D -m 0644 "${FILES_DIR}/share/offline.html" "${SHARE_DIR}/offline.html"
 install -D -m 0644 "${FILES_DIR}/autostart/autodarts-kiosk.desktop" /etc/xdg/autostart/autodarts-kiosk.desktop
 install -D -m 0644 "${FILES_DIR}/systemd/autodarts-update-check.service" /etc/systemd/system/autodarts-update-check.service
@@ -114,10 +136,14 @@ systemctl daemon-reload
 systemctl enable autodarts-update-check.service >/dev/null 2>&1 || true
 
 # --- 4) AutoDarts Desktop ------------------------------------------------------
-step "Autodarts Desktop (ARM64) installieren"
-if ! /usr/local/bin/autodarts-update-check.sh --install; then
+step "Autodarts Desktop (ARM64 AppImage, Kanal ${AUTODARTS_CHANNEL}) installieren"
+if [[ "$(dpkg-query -W -f='${Status}' autodarts-desktop 2>/dev/null || true)" == "install ok installed" ]]; then
+  echo "HINWEIS: Eine alte .deb-Version von autodarts-desktop ist installiert."
+  echo "         Entfernen mit: sudo apt remove autodarts-desktop (sonst kann sie mit dem AppImage kollidieren)"
+fi
+if ! AUTODARTS_CHANNEL="${AUTODARTS_CHANNEL}" /usr/local/bin/autodarts-update-check.sh --install; then
   echo "WARNUNG: AutoDarts Desktop konnte nicht installiert werden (siehe /var/log/autodarts-update.log)."
-  echo "         Setup erneut ausführen oder das .deb manuell von https://autodarts.io/downloads installieren."
+  echo "         Setup erneut ausführen oder das AppImage manuell von https://autodarts.com/downloads laden."
 fi
 
 # --- 5) Chromium-Erweiterung ---------------------------------------------------

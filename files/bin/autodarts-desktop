@@ -1,0 +1,17 @@
+#!/usr/bin/env bash
+# Startet das installierte AutoDarts-Desktop-AppImage.
+set -euo pipefail
+
+APPIMAGE="/opt/autodarts/autodarts-desktop.AppImage"
+
+if [[ ! -x "${APPIMAGE}" ]]; then
+  echo "AutoDarts Desktop ist nicht installiert: sudo /usr/local/bin/autodarts-update-check.sh --install" >&2
+  exit 1
+fi
+
+# Ohne FUSE 2 kann ein AppImage nicht direkt gemountet werden: dann entpacken und ausfuehren.
+if ! ldconfig -p 2>/dev/null | grep -q 'libfuse\.so\.2'; then
+  export APPIMAGE_EXTRACT_AND_RUN=1
+fi
+
+exec "${APPIMAGE}" "$@"

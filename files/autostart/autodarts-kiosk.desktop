@@ -1,7 +1,7 @@
 [Desktop Entry]
 Type=Application
 Name=Autodarts Kiosk
-Comment=Startet play.autodarts.io im Vollbild
+Comment=Startet play.autodarts.com im Vollbild
 Exec=/usr/local/bin/autodarts-kiosk.sh
 X-GNOME-Autostart-enabled=true
 NoDisplay=false

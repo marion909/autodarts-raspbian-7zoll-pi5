@@ -4,7 +4,10 @@ Produktionsnahes Setup für Raspberry Pi OS Desktop mit automatischem Kiosk-Star
 
 ## Installation (ein Befehl)
 
-Auf dem Pi (Raspberry Pi OS 64-bit mit Desktop, Internet erforderlich):
+Zielsystem: **Raspberry Pi OS (64-bit) mit Desktop, Debian 13 "Trixie"** auf dem Raspberry Pi 5, Internet erforderlich.
+Das Setup schaltet die Session per `raspi-config` auf X11 um (Trixie startet standardmäßig mit Wayland/labwc).
+
+Auf dem Pi:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/marion909/autodarts-raspbian-7zoll-pi5/main/install.sh | sudo bash
@@ -39,6 +42,7 @@ Weitere optionale Variablen (nach `sudo` angeben):
 | `DSI_MODE`       | `800x480`                                 | Auflösung des DSI-Displays                  |
 | `DSI_SCALE`      | `1.2x1.2`                                 | xrandr-Skalierung des DSI-Displays          |
 | `MIRROR_HDMI`    | `1`                                       | `0` = HDMI nicht auf DSI spiegeln           |
+| `AUTODARTS_CHANNEL` | `stable`                               | `stable` oder `beta` für AutoDarts Desktop  |
 
 > Hinweis: Ein Skript per `curl | sudo bash` auszuführen heißt, dem Repository zu vertrauen.
 > Wer vorher lesen möchte, lädt [install.sh](install.sh) zuerst herunter, oder klont das Repo und startet
@@ -55,8 +59,8 @@ sudo reboot
 
 ## Features
 
-- installiert **AutoDarts Desktop** (Linux ARM64) und prüft bei jedem Boot auf Updates (`systemd`)
-- installiert **Chromium** und startet `https://play.autodarts.io/` im Fullscreen
+- installiert **AutoDarts Desktop** (Linux ARM64, AppImage nach `/opt/autodarts`) und prüft bei jedem Boot auf Updates (`systemd`)
+- installiert **Chromium** und startet `https://play.autodarts.com/` im Fullscreen
 - startet Chromium nach einem Absturz automatisch neu (mit Bremse gegen Crash-Schleifen)
 - zeigt ohne Netzwerk eine lokale Warteseite, die selbstständig erneut versucht
 - installiert automatisch die Chrome-Erweiterung **Tools for Autodarts** per Policy
@@ -80,7 +84,7 @@ sudo reboot
 
 - Desktop-Login erfolgt automatisch
 - AutoDarts Desktop startet
-- Chromium startet im Vollbild mit `https://play.autodarts.io/`
+- Chromium startet im Vollbild mit `https://play.autodarts.com/`
 - DSI-Skalierung und Rotation werden vor dem Browserstart gesetzt
 - HDMI wird (bei Verbindung) auf DSI gespiegelt
 - GNOME-Keyring-Prompt ist deaktiviert
@@ -125,8 +129,12 @@ http://<RASPBERRY_PI_IP>:3180
 
 ## Updates
 
-- Der Service `autodarts-update-check.service` prüft bei jedem Boot die neueste ARM64-Version auf
-  `autodarts.io/downloads`, lädt sie bei Bedarf herunter, prüft das Paket (Name und Architektur) und installiert es
+- AutoDarts Desktop gibt es für Linux ARM64 ab Version 2.0 nur noch als **AppImage** (kein `.deb` mehr). Das Setup lädt es
+  von `releases.autodarts.com` nach `/opt/autodarts/autodarts-desktop.AppImage`, der Starter `/usr/local/bin/autodarts-desktop`
+  startet es (ohne FUSE automatisch per "entpacken und ausführen")
+- Der Service `autodarts-update-check.service` fragt bei jedem Boot die neueste Version des Kanals ab, lädt sie bei Bedarf
+  herunter, prüft Dateigröße und ELF-Header und ersetzt das AppImage atomar
+- Kanal: `stable` (Standard) oder `beta`, gesetzt beim Setup mit `AUTODARTS_CHANNEL=beta` bzw. in `/etc/default/autodarts-update`
 - Log: `/var/log/autodarts-update.log`, manuell ausführen: `sudo /usr/local/bin/autodarts-update-check.sh`
 - Das Setup selbst lässt sich jederzeit erneut ausführen (idempotent), um Skripte auf den neuesten Stand zu bringen
 
@@ -136,7 +144,10 @@ http://<RASPBERRY_PI_IP>:3180
 | --------------------------------------------- | -------------------------------------------- |
 | `/usr/local/bin/autodarts-kiosk.sh`           | Kiosk-Start (Display, AutoDarts, Chromium)   |
 | `/usr/local/bin/autodarts-display.sh`         | Rotation, Skalierung, HDMI-Spiegelung        |
-| `/usr/local/bin/autodarts-update-check.sh`    | Update-Check                                 |
+| `/usr/local/bin/autodarts-update-check.sh`    | Installation/Update des AppImages            |
+| `/usr/local/bin/autodarts-desktop`            | Starter für das AppImage                     |
+| `/opt/autodarts/`                             | AppImage und installierte Version            |
+| `/etc/default/autodarts-update`               | Update-Kanal (`stable`/`beta`)               |
 | `/etc/default/autodarts-display`              | Display-Konfiguration                        |
 | `/usr/local/share/autodarts/`                 | Wallpaper und Offline-Seite                  |
 | `/var/log/autodarts-update.log`               | Update-Log                                   |
@@ -160,6 +171,7 @@ assets/                     # boot-splash.png, wallpaper.jpg
 
 - Seite lädt nicht: Netzwerk prüfen. Bis zur Verbindung zeigt der Kiosk eine Warteseite und versucht es alle 5 Sekunden erneut
 - Displays falsch: `/etc/default/autodarts-display` prüfen oder Setup erneut ausführen und neu starten
+- Eine alte `.deb`-Version von AutoDarts Desktop (1.x) vorher entfernen: `sudo apt remove autodarts-desktop`
 - Update-Probleme: `cat /var/log/autodarts-update.log` und `systemctl status autodarts-update-check.service`
 - Alte pcmanfm-Desktop-Konfiguration wird beim Setup einmalig als `desktop-items-0.conf.autodarts-bak` gesichert
 

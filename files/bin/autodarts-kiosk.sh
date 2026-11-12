@@ -2,7 +2,7 @@
 # Startet AutoDarts Desktop und Chromium im Kiosk-Modus (mit automatischem Neustart).
 set -euo pipefail
 
-URL="https://play.autodarts.io/"
+URL="https://play.autodarts.com/"
 OFFLINE_PAGE="/usr/local/share/autodarts/offline.html"
 NETWORK_WAIT_SECONDS=30
 KIOSK_PROFILE="${HOME}/.config/autodarts-kiosk"
@@ -23,7 +23,7 @@ if [[ -z "${CHROMIUM_BIN}" ]]; then
   exit 1
 fi
 
-# Wartet bis zu NETWORK_WAIT_SECONDS auf play.autodarts.io.
+# Wartet bis zu NETWORK_WAIT_SECONDS auf play.autodarts.com.
 # Gibt die Start-URL aus: die echte Seite, sonst die lokale Offline-Seite,
 # die selbststaendig alle paar Sekunden erneut versucht.
 pick_start_url() {
