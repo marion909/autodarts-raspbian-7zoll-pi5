@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# Sucht Bluetooth-Lautsprecher, laesst einen auswaehlen, koppelt und verbindet ihn.
+#
+#   sudo autodarts-bt-speaker            Suche + Auswahl im Terminal
+#   sudo autodarts-bt-speaker AA:BB:...  direkt mit dieser MAC-Adresse koppeln (ohne Suche)
+#
+# Der gewaehlte Lautsprecher wird in /etc/default/autodarts-bt gespeichert und
+# beim Login automatisch verbunden (autodarts-bt-connect.sh).
+set -euo pipefail
+
+CONFIG_FILE="/etc/default/autodarts-bt"
+TTY_DEV="/dev/tty"
+SCAN_SECONDS="${BT_SCAN_SECONDS:-20}"
+MAC_REGEX='^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'
+UNNAMED_REGEX='^([0-9A-Fa-f]{2}-){5}[0-9A-Fa-f]{2}$'
+
+die() {
+  echo "FEHLER: $*" >&2
+  exit 1
+}
+
+if [[ "${EUID}" -ne 0 ]]; then
+  die "Bitte als root ausführen: sudo autodarts-bt-speaker"
+fi
+
+command -v bluetoothctl >/dev/null 2>&1 || die "bluetoothctl fehlt (Paket 'bluez' installieren)"
+
+TARGET_MAC="${1:-}"
+if [[ -n "${TARGET_MAC}" && ! "${TARGET_MAC}" =~ ${MAC_REGEX} ]]; then
+  die "Ungültige MAC-Adresse '${TARGET_MAC}' (Format: AA:BB:CC:DD:EE:FF)"
+fi
+
+if [[ -z "${TARGET_MAC}" ]] && ! (exec <"${TTY_DEV}") 2>/dev/null; then
+  die "Kein Terminal für die Auswahl vorhanden. MAC-Adresse angeben: sudo autodarts-bt-speaker AA:BB:CC:DD:EE:FF"
+fi
+
+ask() {
+  local reply=""
+  read -r -p "$1" reply <"${TTY_DEV}" || reply=""
+  echo "${reply}"
+}
+
+# --- Bluetooth bereitmachen -----------------------------------------------------
+if command -v rfkill >/dev/null 2>&1; then
+  rfkill unblock bluetooth || true
+fi
+systemctl enable --now bluetooth >/dev/null 2>&1 || true
+
+ready=0
+for _ in 1 2 3 4 5 6 7 8 9 10; do
+  if bluetoothctl list 2>/dev/null | grep -q '^Controller'; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+if [[ "${ready}" -ne 1 ]]; then
+  die "Kein Bluetooth-Controller gefunden (Dienst 'bluetooth' prüfen: systemctl status bluetooth)"
+fi
+bluetoothctl power on >/dev/null 2>&1 || true
+
+# --- Suche und Auswahl ------------------------------------------------------------
+DEV_COUNT=0
+DEV_MACS=()
+DEV_NAMES=()
+DEV_AUDIO=()
+
+scan_devices() {
+  local pid
+  echo
+  echo "Suche läuft (${SCAN_SECONDS} s) – Lautsprecher jetzt in den Pairing-Modus versetzen"
+  printf '  '
+  bluetoothctl --timeout "${SCAN_SECONDS}" scan on >/dev/null 2>&1 &
+  pid=$!
+  while kill -0 "${pid}" 2>/dev/null; do
+    printf '.'
+    sleep 1
+  done
+  wait "${pid}" 2>/dev/null || true
+  echo
+}
+
+# Fuegt Geraete aus $1 (Ausgabe von "bluetoothctl devices") hinzu; $2=1: nur Audio-Geraete, $2=0: nur uebrige
+add_devices() {
+  local text="$1" want_audio="$2" line mac name info audio
+  while read -r line; do
+    [[ "${line}" == Device\ * ]] || continue
+    read -r _ mac name <<<"${line}"
+    # Geraete ohne Namen (nur MAC) ueberspringen
+    if [[ -z "${name}" || "${name}" =~ ${UNNAMED_REGEX} ]]; then
+      continue
+    fi
+    audio=0
+    info="$(bluetoothctl info "${mac}" 2>/dev/null || true)"
+    if grep -qiE 'Audio Sink|Icon: audio' <<<"${info}"; then
+      audio=1
+    fi
+    if [[ "${audio}" -ne "${want_audio}" ]]; then
+      continue
+    fi
+    DEV_MACS+=("${mac}")
+    DEV_NAMES+=("${name}")
+    if [[ "${audio}" -eq 1 ]]; then
+      DEV_AUDIO+=("  (Audio)")
+    else
+      DEV_AUDIO+=("")
+    fi
+    DEV_COUNT=$((DEV_COUNT + 1))
+  done <<<"${text}"
+}
+
+collect_devices() {
+  local text
+  DEV_COUNT=0
+  DEV_MACS=()
+  DEV_NAMES=()
+  DEV_AUDIO=()
+  text="$(bluetoothctl devices 2>/dev/null || true)"
+  add_devices "${text}" 1
+  add_devices "${text}" 0
+}
+
+CHOSEN_MAC=""
+CHOSEN_NAME=""
+
+choose_device() {
+  local reply i
+  while true; do
+    scan_devices
+    collect_devices
+
+    echo
+    echo "Gefundene Geräte:"
+    if [[ "${DEV_COUNT}" -eq 0 ]]; then
+      echo "  (keine gefunden)"
+    fi
+    for ((i = 0; i < DEV_COUNT; i++)); do
+      printf '  %d) %s  [%s]%s\n' "$((i + 1))" "${DEV_NAMES[i]}" "${DEV_MACS[i]}" "${DEV_AUDIO[i]}"
+    done
+    echo
+
+    # Nur bei "r" wird neu gesucht; ungueltige Eingaben fragen erneut
+    while true; do
+      reply="$(ask "Nummer wählen, [r] neu suchen, [q] abbrechen: ")"
+      case "${reply}" in
+        q | Q)
+          echo "Abgebrochen."
+          exit 0
+          ;;
+        r | R)
+          break
+          ;;
+        *)
+          if [[ "${reply}" =~ ^[0-9]+$ && "${reply}" -ge 1 && "${reply}" -le "${DEV_COUNT}" ]]; then
+            CHOSEN_MAC="${DEV_MACS[$((reply - 1))]}"
+            CHOSEN_NAME="${DEV_NAMES[$((reply - 1))]}"
+            return 0
+          fi
+          echo "Ungültige Eingabe '${reply}'."
+          ;;
+      esac
+    done
+  done
+}
+
+if [[ -n "${TARGET_MAC}" ]]; then
+  CHOSEN_MAC="${TARGET_MAC}"
+  CHOSEN_NAME="${TARGET_MAC}"
+else
+  echo
+  echo "Bluetooth-Lautsprecher einrichten"
+  echo "  1. Lautsprecher einschalten und in den Pairing-Modus versetzen"
+  echo "     (meist Bluetooth-Taste gedrückt halten, bis die LED blinkt)"
+  ask "  2. Dann Enter drücken, um die Suche zu starten ... " >/dev/null
+  choose_device
+fi
+
+# --- Koppeln, vertrauen, verbinden -----------------------------------------------
+echo
+echo "Verbinde mit ${CHOSEN_NAME} [${CHOSEN_MAC}] ..."
+
+info="$(bluetoothctl info "${CHOSEN_MAC}" 2>/dev/null || true)"
+if ! grep -q 'Paired: yes' <<<"${info}"; then
+  echo "  Koppeln ..."
+  if ! timeout 40 bluetoothctl pair "${CHOSEN_MAC}"; then
+    die "Koppeln fehlgeschlagen. Ist der Lautsprecher im Pairing-Modus (nicht gerade mit einem anderen Gerät verbunden)?"
+  fi
+fi
+
+bluetoothctl trust "${CHOSEN_MAC}" >/dev/null 2>&1 || true
+
+echo "  Verbinden ..."
+timeout 30 bluetoothctl connect "${CHOSEN_MAC}" >/dev/null 2>&1 || true
+
+if ! bluetoothctl info "${CHOSEN_MAC}" 2>/dev/null | grep -q 'Connected: yes'; then
+  die "Verbindung fehlgeschlagen. Lautsprecher aus- und wieder einschalten und erneut versuchen."
+fi
+
+{
+  echo "# Bluetooth-Lautsprecher (wird beim Login von autodarts-bt-connect.sh verbunden)"
+  printf 'BT_SPEAKER_MAC=%q\n' "${CHOSEN_MAC}"
+  printf 'BT_SPEAKER_NAME=%q\n' "${CHOSEN_NAME}"
+} >"${CONFIG_FILE}"
+
+echo
+echo "Verbunden mit ${CHOSEN_NAME}."
+echo "Der Lautsprecher wird künftig beim Login automatisch verbunden (Gerät muss eingeschaltet sein)."
+echo "Falls der Ton nicht automatisch dort ankommt: Lautsprecher-Symbol in der Taskleiste und das Gerät wählen."

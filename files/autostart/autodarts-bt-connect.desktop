@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Autodarts Bluetooth Speaker
+Comment=Verbindet den gespeicherten Bluetooth-Lautsprecher beim Login
+Exec=/usr/local/bin/autodarts-bt-connect.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=false

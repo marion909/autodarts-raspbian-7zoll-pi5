@@ -46,6 +46,7 @@ Weitere optionale Variablen (nach `sudo` angeben):
 | `DSI_SCALE`      | `1.2x1.2`                                 | xrandr-Skalierung des DSI-Displays          |
 | `MIRROR_HDMI`    | `1`                                       | `0` = HDMI nicht auf DSI spiegeln           |
 | `AUTODARTS_CHANNEL` | `stable`                               | `stable` oder `beta` für AutoDarts Desktop  |
+| `BT_SPEAKER`     | (Rückfrage)                               | `yes`, `no` oder MAC-Adresse des Bluetooth-Lautsprechers |
 
 > Hinweis: Ein Skript per `curl | sudo bash` auszuführen heißt, dem Repository zu vertrauen.
 > Wer vorher lesen möchte, lädt [install.sh](install.sh) zuerst herunter, oder klont das Repo und startet
@@ -71,6 +72,7 @@ sudo reboot
 - setzt beim Login Screen-Rotation, DSI-Auflösung/Skalierung und spiegelt DSI auf HDMI (falls angeschlossen)
 - aktiviert Auto-Login (Desktop) und erzwingt X11-Session
 - setzt optional Boot-Splash und Desktop-Wallpaper aus `assets/`
+- richtet auf Wunsch einen **Bluetooth-Lautsprecher** ein (Suche, Auswahl, Koppeln) und verbindet ihn bei jedem Login
 
 ## SD-Karte vorbereiten
 
@@ -91,6 +93,27 @@ sudo reboot
 - DSI-Skalierung und Rotation werden vor dem Browserstart gesetzt
 - HDMI wird (bei Verbindung) auf DSI gespiegelt
 - GNOME-Keyring-Prompt ist deaktiviert
+
+## Bluetooth-Lautsprecher
+
+Das Setup fragt zu Beginn, ob ein Bluetooth-Lautsprecher eingerichtet werden soll. Wenn ja, passiert am Ende des Setups Folgendes:
+
+1. Du versetzt den Lautsprecher in den Pairing-Modus und drückst Enter
+2. Das Setup sucht 20 Sekunden nach Geräten und zeigt eine nummerierte Liste (Audio-Geräte zuerst)
+3. Nach der Auswahl wird der Lautsprecher gekoppelt, als vertrauenswürdig markiert und verbunden
+
+Der Lautsprecher wird in `/etc/default/autodarts-bt` gespeichert und bei jedem Login automatisch verbunden
+(wenn er noch aus ist, versucht der Pi es einige Minuten lang im Hintergrund erneut).
+
+Jederzeit nachträglich oder für einen anderen Lautsprecher:
+
+```bash
+sudo autodarts-bt-speaker                      # Suche und Auswahl
+sudo autodarts-bt-speaker AA:BB:CC:DD:EE:FF    # direkt per MAC-Adresse
+```
+
+Ohne Rückfrage beim Setup: `BT_SPEAKER=no` (überspringen) oder `BT_SPEAKER=AA:BB:CC:DD:EE:FF` (direkt koppeln).
+Kommt der Ton nicht automatisch aus dem Lautsprecher, das Lautsprecher-Symbol in der Taskleiste öffnen und das Gerät wählen.
 
 ## Display-Verhalten
 
@@ -152,6 +175,8 @@ http://<RASPBERRY_PI_IP>:3180
 | `/opt/autodarts/`                             | AppImage und installierte Version            |
 | `/etc/default/autodarts-update`               | Update-Kanal (`stable`/`beta`)               |
 | `/etc/default/autodarts-display`              | Display-Konfiguration                        |
+| `/usr/local/bin/autodarts-bt-speaker`         | Bluetooth-Lautsprecher suchen und koppeln    |
+| `/etc/default/autodarts-bt`                   | gespeicherter Bluetooth-Lautsprecher         |
 | `/usr/local/share/autodarts/`                 | Wallpaper und Offline-Seite                  |
 | `/var/log/autodarts-update.log`               | Update-Log                                   |
 
@@ -175,6 +200,7 @@ assets/                     # boot-splash.png, wallpaper.jpg
 - Seite lädt nicht: Netzwerk prüfen. Bis zur Verbindung zeigt der Kiosk eine Warteseite und versucht es alle 5 Sekunden erneut
 - Displays falsch: `/etc/default/autodarts-display` prüfen oder Setup erneut ausführen und neu starten
 - Eine alte `.deb`-Version von AutoDarts Desktop (1.x) vorher entfernen: `sudo apt remove autodarts-desktop`
+- Bluetooth: Lautsprecher im Pairing-Modus? Sonst `sudo autodarts-bt-speaker` erneut starten; Dienst prüfen mit `systemctl status bluetooth`
 - Update-Probleme: `cat /var/log/autodarts-update.log` und `systemctl status autodarts-update-check.service`
 - Alte pcmanfm-Desktop-Konfiguration wird beim Setup einmalig als `desktop-items-0.conf.autodarts-bak` gesichert
 

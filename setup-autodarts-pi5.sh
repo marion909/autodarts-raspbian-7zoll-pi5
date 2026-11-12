@@ -33,7 +33,7 @@ if [[ ! -d "${FILES_DIR}" ]]; then
   exit 1
 fi
 
-TOTAL_STEPS=8
+TOTAL_STEPS=9
 STEP=0
 step() {
   STEP=$((STEP + 1))
@@ -83,6 +83,25 @@ case "${AUTODARTS_CHANNEL}" in
     ;;
 esac
 
+# --- Bluetooth-Lautsprecher (optional) -------------------------------------------
+# BT_SPEAKER=yes|no|<MAC-Adresse>. Sonst wird, falls ein Terminal vorhanden ist, gefragt.
+# Die eigentliche Suche/Kopplung läuft am Ende des Setups.
+BT_SPEAKER="${BT_SPEAKER:-}"
+BT_MAC_REGEX='^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'
+if [[ -z "${BT_SPEAKER}" ]] && (exec </dev/tty) 2>/dev/null; then
+  echo ""
+  read -r -p "Bluetooth-Lautsprecher einrichten (Suche, Auswahl, Verbinden)? [j/N]: " bt_answer </dev/tty || bt_answer=""
+  case "${bt_answer}" in
+    j | J | y | Y | ja | Ja | yes) BT_SPEAKER="yes" ;;
+    *) BT_SPEAKER="no" ;;
+  esac
+fi
+BT_SPEAKER="${BT_SPEAKER:-no}"
+if [[ "${BT_SPEAKER}" != "yes" && "${BT_SPEAKER}" != "no" && ! "${BT_SPEAKER}" =~ ${BT_MAC_REGEX} ]]; then
+  echo "Ungültiger Wert BT_SPEAKER='${BT_SPEAKER}' (erlaubt: yes, no, MAC-Adresse), überspringe Bluetooth."
+  BT_SPEAKER="no"
+fi
+
 # --- 1) Pakete ---------------------------------------------------------------
 step "Pakete aktualisieren"
 apt-get update
@@ -121,15 +140,17 @@ rm -f /usr/local/bin/autodarts-rotate-display.sh \
   /etc/xdg/autostart/autodarts-mirror.desktop \
   /etc/default/autodarts-display-rotation
 
-for script in autodarts-kiosk.sh autodarts-display.sh autodarts-update-check.sh autodarts-set-wallpaper.sh; do
+for script in autodarts-kiosk.sh autodarts-display.sh autodarts-update-check.sh autodarts-set-wallpaper.sh autodarts-bt-connect.sh; do
   install -D -m 0755 "${FILES_DIR}/bin/${script}" "/usr/local/bin/${script}"
 done
 
 install -D -m 0755 "${FILES_DIR}/bin/autodarts-desktop" /usr/local/bin/autodarts-desktop
+install -D -m 0755 "${FILES_DIR}/bin/autodarts-bt-speaker" /usr/local/bin/autodarts-bt-speaker
 printf 'AUTODARTS_CHANNEL=%q\n' "${AUTODARTS_CHANNEL}" >/etc/default/autodarts-update
 
 install -D -m 0644 "${FILES_DIR}/share/offline.html" "${SHARE_DIR}/offline.html"
 install -D -m 0644 "${FILES_DIR}/autostart/autodarts-kiosk.desktop" /etc/xdg/autostart/autodarts-kiosk.desktop
+install -D -m 0644 "${FILES_DIR}/autostart/autodarts-bt-connect.desktop" /etc/xdg/autostart/autodarts-bt-connect.desktop
 install -D -m 0644 "${FILES_DIR}/systemd/autodarts-update-check.service" /etc/systemd/system/autodarts-update-check.service
 
 systemctl daemon-reload
@@ -230,6 +251,27 @@ done
 
 chown -R "${TARGET_USER}:" "${TARGET_HOME}/.config" || true
 
+# --- 9) Bluetooth-Lautsprecher ---------------------------------------------------
+step "Bluetooth-Lautsprecher"
+if [[ "${BT_SPEAKER}" == "no" ]]; then
+  echo "Übersprungen (jederzeit nachholen mit: sudo autodarts-bt-speaker)"
+else
+  apt-get install -y bluez
+  if apt-cache show libspa-0.2-bluetooth >/dev/null 2>&1; then
+    apt-get install -y libspa-0.2-bluetooth
+  else
+    apt-get install -y pulseaudio-module-bluetooth || true
+  fi
+
+  bt_args=()
+  if [[ "${BT_SPEAKER}" != "yes" ]]; then
+    bt_args=("${BT_SPEAKER}")
+  fi
+  if ! /usr/local/bin/autodarts-bt-speaker ${bt_args[@]+"${bt_args[@]}"}; then
+    echo "WARNUNG: Bluetooth-Lautsprecher wurde nicht eingerichtet. Später erneut versuchen mit: sudo autodarts-bt-speaker"
+  fi
+fi
+
 AUTODARTS_WEB_PORT=3180
 IPV4_REGEX='^[0-9]+(\.[0-9]+){3}$'
 
@@ -259,3 +301,4 @@ echo "Konfigurationsdatei:   ${TARGET_HOME}/.config/autodarts-desktop/config.tom
 echo "Update-Kanal:          ${AUTODARTS_CHANNEL} (/etc/default/autodarts-update)"
 echo "Display-Einstellungen: /etc/default/autodarts-display (Rotation ${ROTATION_LABEL}°)"
 echo "Update-Log:            /var/log/autodarts-update.log"
+echo "Bluetooth-Lautsprecher: sudo autodarts-bt-speaker (Suche, Auswahl, Verbinden)"
