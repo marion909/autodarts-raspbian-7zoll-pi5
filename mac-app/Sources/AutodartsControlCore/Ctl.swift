@@ -20,16 +20,20 @@ public enum Ctl {
 
     /// Installiert/aktualisiert die Pi-Tools durch erneutes Ausfuehren des Setups
     /// (bestehende Einstellungen bleiben erhalten, Bluetooth wird uebersprungen).
+    /// Das sudo-Passwort kommt ueber stdin (`sudo -S`); bei passwortlosem sudo wird es ignoriert.
+    /// Der Installer wird erst heruntergeladen, damit stdin dem Passwort gehoert und nicht dem Skript.
     public static func bootstrapCommand(repo: String = "marion909/autodarts-raspbian-7zoll-pi5", ref: String = "main") -> String {
         let url = "https://raw.githubusercontent.com/\(repo)/\(ref)/install.sh"
         return """
-        set -o pipefail; \
         ROTATION_OPTION=1; DSI_MODE=800x480; DSI_SCALE=1.2x1.2; MIRROR_HDMI=1; AUTODARTS_CHANNEL=stable; \
         for f in /etc/default/autodarts-display /etc/default/autodarts-update; do [ -r "$f" ] && . "$f"; done; \
-        curl -fsSL \(Validation.shellQuote(url)) | sudo -n env TARGET_USER="$(id -un)" \
+        TMP="$(mktemp)" || exit 1; \
+        if ! curl -fsSL \(Validation.shellQuote(url)) -o "$TMP"; then echo "Download des Installers fehlgeschlagen" >&2; rm -f "$TMP"; exit 1; fi; \
+        sudo -S -p '' env TARGET_USER="$(id -un)" \
         AUTODARTS_REPO=\(Validation.shellQuote(repo)) AUTODARTS_REF=\(Validation.shellQuote(ref)) \
         ROTATION_OPTION="$ROTATION_OPTION" DSI_MODE="$DSI_MODE" DSI_SCALE="$DSI_SCALE" \
-        MIRROR_HDMI="$MIRROR_HDMI" AUTODARTS_CHANNEL="$AUTODARTS_CHANNEL" BT_SPEAKER=no bash
+        MIRROR_HDMI="$MIRROR_HDMI" AUTODARTS_CHANNEL="$AUTODARTS_CHANNEL" BT_SPEAKER=no bash "$TMP"; \
+        RC=$?; rm -f "$TMP"; exit $RC
         """
     }
 

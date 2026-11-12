@@ -1,5 +1,5 @@
 // Erzeugt aus den Autodarts-SVGs (assets/brand/) alle Bildressourcen:
-//   assets/boot-splash.png, assets/wallpaper.jpg,
+//   assets/boot-splash.png, assets/wallpaper.jpg, assets/brand/readme-banner.png,
 //   mac-app/Resources/{MenuBarIcon.png, MenuBarIcon@2x.png, Logo.png} und das AppIcon.iconset
 // Aufruf: make-brand-assets <brand-dir> <repo-root> <iconset-dir>   (siehe tools/make-brand-assets.sh)
 import AppKit
@@ -79,6 +79,21 @@ let wallpaper = makeBitmap(1920, 1080) { rect in
     drawFit(logo, in: NSRect(x: 510, y: 400, width: 900, height: 280))
 }
 write(wallpaper, root + "/assets/wallpaper.jpg", type: .jpeg, properties: [.compressionFactor: 0.92])
+
+// MARK: - README-Banner (1600x420): funktioniert auf hellem und dunklem GitHub-Hintergrund
+
+let banner = makeBitmap(1600, 420) { rect in
+    background.setFill()
+    rect.fill()
+    let glow = NSGradient(
+        starting: NSColor(srgbRed: 0.02, green: 0.16, blue: 0.30, alpha: 1),
+        ending: background
+    )!
+    glow.draw(fromCenter: NSPoint(x: 1250, y: 330), radius: 0, toCenter: NSPoint(x: 1250, y: 330), radius: 800, options: [])
+    drawFit(mark, in: NSRect(x: 1000, y: -230, width: 900, height: 900), alpha: 0.07)
+    drawFit(logo, in: NSRect(x: 380, y: 110, width: 840, height: 200))
+}
+write(banner, root + "/assets/brand/readme-banner.png", type: .png)
 
 // MARK: - macOS-App-Icon (abgerundetes Quadrat nach Apple-Raster, Symbol mittig)
 

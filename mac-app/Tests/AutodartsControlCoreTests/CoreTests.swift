@@ -174,6 +174,8 @@ final class CtlCommandTests: XCTestCase {
         let cmd = Ctl.bootstrapCommand()
         XCTAssertTrue(cmd.contains("https://raw.githubusercontent.com/marion909/autodarts-raspbian-7zoll-pi5/main/install.sh"))
         XCTAssertTrue(cmd.contains("BT_SPEAKER=no"))
+        XCTAssertTrue(cmd.contains("sudo -S -p ''"))
+        XCTAssertFalse(cmd.contains("| sudo"), "stdin muss dem Passwort gehoeren, nicht dem Installer")
     }
 }
 
@@ -219,6 +221,23 @@ final class SSHClientTests: XCTestCase {
         XCTAssertEqual(result.text, "hallo\n")
         XCTAssertEqual(result.stderr, "fehler\n")
         XCTAssertTrue(collector.joined.contains("hallo"))
+    }
+
+    func testRunProcessPassesStdin() async {
+        let result = await runProcess(
+            executable: "/bin/sh",
+            arguments: ["-c", "read -r line; echo \"got:$line\""],
+            stdin: Data("geheim\n".utf8),
+            timeout: 10
+        )
+        XCTAssertEqual(result.text, "got:geheim\n")
+    }
+
+    func testNeedsSudoPasswordDetection() {
+        let yes = SSHResult(status: 1, stdout: Data(), stderr: "sudo: a password is required\n")
+        let no = SSHResult(status: 1, stdout: Data(), stderr: "boom")
+        XCTAssertTrue(yes.needsSudoPassword)
+        XCTAssertFalse(no.needsSudoPassword)
     }
 
     func testRunProcessTimeout() async {

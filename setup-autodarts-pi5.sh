@@ -153,6 +153,19 @@ install -D -m 0755 "${FILES_DIR}/bin/autodarts-ctl" /usr/local/bin/autodarts-ctl
   printf 'AUTODARTS_REPO=%q\n' "${AUTODARTS_REPO:-marion909/autodarts-raspbian-7zoll-pi5}"
   printf 'AUTODARTS_REF=%q\n' "${AUTODARTS_REF:-main}"
 } >/etc/default/autodarts-ctl
+
+# Passwortloses sudo ausschließlich für autodarts-ctl (Mac-App). Alles andere bleibt passwortgeschützt.
+# Auf Raspberry Pi OS Trixie verlangt sudo sonst ein Passwort, das die App per SSH nicht eingeben kann.
+if [[ "${TARGET_USER}" =~ ^[a-z_][a-z0-9_-]*$ ]]; then
+  SUDOERS_TMP="$(mktemp)"
+  printf '%s ALL=(root) NOPASSWD: /usr/local/bin/autodarts-ctl\n' "${TARGET_USER}" >"${SUDOERS_TMP}"
+  if visudo -cf "${SUDOERS_TMP}" >/dev/null 2>&1; then
+    install -m 0440 -o root -g root "${SUDOERS_TMP}" /etc/sudoers.d/autodarts-ctl
+  else
+    echo "WARNUNG: sudoers-Regel für autodarts-ctl ist ungültig und wurde nicht installiert."
+  fi
+  rm -f "${SUDOERS_TMP}"
+fi
 printf 'AUTODARTS_CHANNEL=%q\n' "${AUTODARTS_CHANNEL}" >/etc/default/autodarts-update
 
 install -D -m 0644 "${FILES_DIR}/share/offline.html" "${SHARE_DIR}/offline.html"

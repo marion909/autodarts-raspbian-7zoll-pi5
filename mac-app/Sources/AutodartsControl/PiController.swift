@@ -6,6 +6,8 @@ struct Notice: Identifiable, Equatable {
     let id = UUID()
     let text: String
     let isError: Bool
+    /// Zeigt einen Knopf, der die Ausgabe der letzten langen Aufgabe wieder oeffnet
+    var showsOutput = false
 }
 
 /// Zentrale Steuerung: Verbindung, Status und alle Aktionen auf dem Pi (per SSH + autodarts-ctl).
@@ -17,8 +19,15 @@ final class PiController: ObservableObject {
         case needsKey
         case hostKeyChanged
         case unreachable(String)
-        case needsTools(outdated: Bool)
+        case needsTools(ToolsReason)
         case connected
+    }
+
+    enum ToolsReason: Equatable {
+        case missing
+        case outdated
+        /// Tools vorhanden, aber sudo verlangt auf dem Pi ein Passwort
+        case sudoPassword
     }
 
     private enum Keys {
@@ -151,11 +160,11 @@ final class PiController: ObservableObject {
         guard version.succeeded,
               let number = Int(version.text.trimmingCharacters(in: .whitespacesAndNewlines))
         else {
-            connection = .needsTools(outdated: false)
+            connection = .needsTools(version.needsSudoPassword ? .sudoPassword : .missing)
             return
         }
         if number < Ctl.requiredVersion {
-            connection = .needsTools(outdated: true)
+            connection = .needsTools(.outdated)
             return
         }
         connection = .connected
@@ -194,8 +203,9 @@ final class PiController: ObservableObject {
         await probe()
     }
 
-    func installTools() async {
-        await stream("Pi-Tools installieren", Ctl.bootstrapCommand())
+    /// Installiert/aktualisiert die Pi-Tools. Das Passwort dient nur `sudo -S` auf dem Pi und wird nicht gespeichert.
+    func installTools(password: String) async {
+        await stream("Pi-Tools installieren", Ctl.bootstrapCommand(), stdin: password + "\n")
         await probe()
     }
 
@@ -217,7 +227,11 @@ final class PiController: ObservableObject {
         case .timeout:
             connection = .unreachable("Zeitüberschreitung – der Pi antwortet nicht")
         default:
-            reportFailure(result)
+            if result.needsSudoPassword {
+                connection = .needsTools(.sudoPassword)
+            } else {
+                reportFailure(result)
+            }
         }
     }
 
@@ -246,8 +260,8 @@ final class PiController: ObservableObject {
 
     private func reportFailure(_ result: SSHResult) {
         var message = result.errorMessage
-        if message.contains("a password is required") || message.contains("sudo:") && message.contains("password") {
-            message = "sudo verlangt ein Passwort. Der Benutzer braucht passwortloses sudo (Standard unter Raspberry Pi OS)."
+        if result.needsSudoPassword {
+            message = "sudo verlangt auf dem Pi ein Passwort. Die Pi-Tools neu installieren richtet die nötige Regel ein."
         } else if result.timedOut {
             message = "Zeitüberschreitung."
         } else if message.isEmpty {
@@ -257,11 +271,11 @@ final class PiController: ObservableObject {
     }
 
     /// Lange Aufgabe mit Live-Ausgabe (Updates, Setup)
-    private func stream(_ title: String, _ command: String, timeout: TimeInterval = 1800) async {
+    private func stream(_ title: String, _ command: String, stdin: String? = nil, timeout: TimeInterval = 1800) async {
         output = ""
         showOutput = true
         task = title
-        let result = await client.stream(command, timeout: timeout) { [weak self] chunk in
+        let result = await client.stream(command, stdin: stdin, timeout: timeout) { [weak self] chunk in
             Task { @MainActor in
                 guard let self else { return }
                 self.output += chunk
@@ -275,7 +289,11 @@ final class PiController: ObservableObject {
             notice = Notice(text: "\(title): fertig.", isError: false)
         } else {
             output += "\n--- Abgebrochen (Exit-Code \(result.status)\(result.timedOut ? ", Zeitüberschreitung" : "")) ---\n"
-            notice = Notice(text: "\(title): fehlgeschlagen.", isError: true)
+            var text = "\(title): fehlgeschlagen."
+            if output.contains("a password is required") || output.contains("incorrect password") || output.contains("Sorry, try again") {
+                text += " sudo hat das Passwort nicht akzeptiert."
+            }
+            notice = Notice(text: text, isError: true, showsOutput: true)
         }
     }
 

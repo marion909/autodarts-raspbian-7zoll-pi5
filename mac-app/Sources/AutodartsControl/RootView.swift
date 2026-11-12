@@ -34,8 +34,12 @@ struct BannerStack: View {
     var body: some View {
         VStack(spacing: 8) {
             if let notice = pi.notice {
-                NoticeBanner(notice: notice) { pi.notice = nil }
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                NoticeBanner(
+                    notice: notice,
+                    dismiss: { pi.notice = nil },
+                    showOutput: notice.showsOutput ? { pi.showOutput = true } : nil
+                )
+                .transition(.move(edge: .bottom).combined(with: .opacity))
             }
             if let task = pi.task, !pi.showOutput {
                 HStack(spacing: 10) {
@@ -58,6 +62,7 @@ struct BannerStack: View {
 struct NoticeBanner: View {
     let notice: Notice
     let dismiss: () -> Void
+    var showOutput: (() -> Void)?
 
     var body: some View {
         HStack(alignment: .top, spacing: 10) {
@@ -66,6 +71,10 @@ struct NoticeBanner: View {
             Text(notice.text)
                 .textSelection(.enabled)
                 .frame(maxWidth: .infinity, alignment: .leading)
+            if let showOutput {
+                Button("Ausgabe anzeigen", action: showOutput)
+                    .buttonStyle(.link)
+            }
             Button(action: dismiss) {
                 Image(systemName: "xmark")
             }
@@ -259,23 +268,52 @@ struct ConnectionView: View {
                     .buttonStyle(.borderedProminent)
             }
 
-        case .needsTools(let outdated):
+        case .needsTools(let reason):
             VStack(spacing: 12) {
-                Label(outdated ? "Pi-Tools sind veraltet" : "Pi-Tools fehlen", systemImage: "wrench.and.screwdriver")
+                Label(toolsTitle(reason), systemImage: "wrench.and.screwdriver")
                     .font(.headline)
-                Text("Die App braucht den Befehl autodarts-ctl auf dem Pi. Er wird durch das Setup aus GitHub installiert; bestehende Einstellungen bleiben erhalten. Das dauert einige Minuten.")
+                Text(toolsExplanation(reason))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(.secondary)
-                Button(outdated ? "Pi-Tools aktualisieren" : "Pi-Tools installieren") {
-                    Task { await pi.installTools() }
-                }
-                .buttonStyle(.borderedProminent)
-                .disabled(pi.isBusy)
+                SecureField("Passwort von \(pi.user)@\(pi.host) (für sudo)", text: $password)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(submitTools)
+                Button(reason == .outdated ? "Pi-Tools aktualisieren" : "Pi-Tools installieren", action: submitTools)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(password.isEmpty || pi.isBusy)
+                Text("Das Passwort wird nur für diese Installation an sudo auf dem Pi weitergereicht und nirgends gespeichert.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
             }
 
         case .connected:
             EmptyView()
         }
+    }
+
+    private func toolsTitle(_ reason: PiController.ToolsReason) -> String {
+        switch reason {
+        case .missing: return "Pi-Tools fehlen"
+        case .outdated: return "Pi-Tools sind veraltet"
+        case .sudoPassword: return "Einmalige sudo-Einrichtung nötig"
+        }
+    }
+
+    private func toolsExplanation(_ reason: PiController.ToolsReason) -> String {
+        switch reason {
+        case .missing, .outdated:
+            return "Die App braucht den Befehl autodarts-ctl auf dem Pi. Er wird durch das Setup aus GitHub installiert; bestehende Einstellungen bleiben erhalten. Das dauert einige Minuten."
+        case .sudoPassword:
+            return "Auf diesem Pi verlangt sudo ein Passwort. Das Setup richtet einmalig eine Regel ein, die nur dem Befehl autodarts-ctl Root-Rechte ohne Passwort gibt. Alles andere bleibt passwortgeschützt. Das dauert einige Minuten."
+        }
+    }
+
+    private func submitTools() {
+        let value = password
+        password = ""
+        guard !value.isEmpty else { return }
+        Task { await pi.installTools(password: value) }
     }
 
     private func submitPassword() {

@@ -30,6 +30,11 @@ public struct SSHResult: Sendable {
     public var text: String { String(decoding: stdout, as: UTF8.self) }
     public var succeeded: Bool { status == 0 && !timedOut }
 
+    /// sudo auf dem Pi verlangt ein Passwort (kein NOPASSWD-Eintrag)
+    public var needsSudoPassword: Bool {
+        stderr.contains("a password is required") || stderr.contains("a terminal is required")
+    }
+
     /// Beste verfuegbare Fehlermeldung (stderr, sonst stdout)
     public var errorMessage: String {
         let err = stderr.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -101,6 +106,7 @@ func runProcess(
     executable: String,
     arguments: [String],
     environment: [String: String]? = nil,
+    stdin: Data? = nil,
     timeout: TimeInterval?,
     onOutput: (@Sendable (String) -> Void)? = nil
 ) async -> SSHResult {
@@ -116,7 +122,8 @@ func runProcess(
         let errPipe = Pipe()
         process.standardOutput = outPipe
         process.standardError = errPipe
-        process.standardInput = FileHandle.nullDevice
+        let inPipe = Pipe()
+        process.standardInput = stdin == nil ? FileHandle.nullDevice : inPipe
 
         let outBuffer = LockedBuffer()
         let errBuffer = LockedBuffer()
@@ -168,6 +175,10 @@ func runProcess(
             continuation.resume(returning: SSHResult(status: -1, stdout: Data(), stderr: error.localizedDescription))
             return
         }
+        if let stdin {
+            try? inPipe.fileHandleForWriting.write(contentsOf: stdin)
+            try? inPipe.fileHandleForWriting.close()
+        }
 
         if let timeout {
             DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
@@ -216,15 +227,23 @@ public final class SSHClient: @unchecked Sendable {
     }
 
     /// Wie `run`, liefert die Ausgabe laufend (fuer lange Aufgaben wie Updates)
+    /// `stdin` wird an den Remote-Befehl uebergeben (z. B. das sudo-Passwort fuer `sudo -S`).
     public func stream(
         _ command: String,
+        stdin: String? = nil,
         timeout: TimeInterval = 1800,
         onOutput: @escaping @Sendable (String) -> Void
     ) async -> SSHResult {
         guard Validation.isValidHost(config.host), Validation.isValidUser(config.user) else {
             return SSHResult(status: -1, stdout: Data(), stderr: "Ungültiger Host oder Benutzername")
         }
-        return await runProcess(executable: sshPath, arguments: arguments(command: command), timeout: timeout, onOutput: onOutput)
+        return await runProcess(
+            executable: sshPath,
+            arguments: arguments(command: command),
+            stdin: stdin.map { Data($0.utf8) },
+            timeout: timeout,
+            onOutput: onOutput
+        )
     }
 
     /// Richtet den Schluessel-Login ein: einmalige Passwortanmeldung, das Passwort wird nicht gespeichert.
