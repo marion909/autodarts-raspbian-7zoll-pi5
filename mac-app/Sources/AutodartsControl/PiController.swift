@@ -77,10 +77,11 @@ final class PiController: ObservableObject {
 
     var hasProblem: Bool { status?.throttled?.hasActiveProblem ?? false }
 
-    var menuBarSymbol: String {
+    /// nil = Autodarts-Symbol (Normalzustand), sonst ein SF-Symbol fuer Problem/Offline
+    var menuBarSymbol: String? {
         switch connection {
-        case .connected: return hasProblem ? "exclamationmark.triangle.fill" : "scope"
-        case .connecting, .idle: return "scope"
+        case .connected: return hasProblem ? "exclamationmark.triangle.fill" : nil
+        case .connecting, .idle: return nil
         default: return "wifi.slash"
         }
     }

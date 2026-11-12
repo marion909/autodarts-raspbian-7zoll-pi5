@@ -57,6 +57,7 @@ struct MainView: View {
                 case .logs: LogsView()
                 }
             }
+            .safeAreaInset(edge: .bottom, spacing: 0) { BannerStack() }
             .toolbar {
                 ToolbarItem {
                     Button {

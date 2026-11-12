@@ -14,23 +14,6 @@ struct RootView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 520)
-        .safeAreaInset(edge: .top, spacing: 0) {
-            if let notice = pi.notice {
-                NoticeBanner(notice: notice) { pi.notice = nil }
-            }
-        }
-        .safeAreaInset(edge: .bottom, spacing: 0) {
-            if let task = pi.task, !pi.showOutput {
-                HStack(spacing: 10) {
-                    ProgressView().controlSize(.small)
-                    Text(task).font(.callout)
-                    Spacer()
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(.bar)
-            }
-        }
         .sheet(isPresented: $pi.showOutput) {
             OutputSheet()
                 .environmentObject(pi)
@@ -40,6 +23,35 @@ struct RootView: View {
                 .environmentObject(pi)
         }
         .task { await pi.start() }
+    }
+}
+
+/// Meldung und laufende Aufgabe. Wird unten an den Inhaltsbereich gehaengt (nicht ans ganze Fenster),
+/// damit sie die Seitenleiste und die Fensterknoepfe nicht ueberdeckt.
+struct BannerStack: View {
+    @EnvironmentObject var pi: PiController
+
+    var body: some View {
+        VStack(spacing: 8) {
+            if let notice = pi.notice {
+                NoticeBanner(notice: notice) { pi.notice = nil }
+                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            }
+            if let task = pi.task, !pi.showOutput {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text(task).font(.callout)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 14)
+                .padding(.vertical, 10)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(.quaternary))
+            }
+        }
+        .padding(.horizontal, 16)
+        .padding(.bottom, (pi.notice != nil || (pi.task != nil && !pi.showOutput)) ? 12 : 0)
+        .animation(.default, value: pi.notice)
     }
 }
 
@@ -59,9 +71,19 @@ struct NoticeBanner: View {
             }
             .buttonStyle(.borderless)
         }
-        .padding(.horizontal, 16)
+        .padding(.horizontal, 14)
         .padding(.vertical, 10)
-        .background(notice.isError ? Color.red.opacity(0.12) : Color.green.opacity(0.12))
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+        .overlay(
+            RoundedRectangle(cornerRadius: 10)
+                .strokeBorder(notice.isError ? Color.red.opacity(0.5) : Color.green.opacity(0.5))
+        )
+        // Erfolgsmeldungen verschwinden von selbst, Fehler bleiben stehen
+        .task(id: notice.id) {
+            guard !notice.isError else { return }
+            try? await Task.sleep(for: .seconds(6))
+            dismiss()
+        }
     }
 }
 
@@ -158,9 +180,7 @@ struct ConnectionView: View {
 
     var body: some View {
         VStack(spacing: 20) {
-            Image(systemName: "scope")
-                .font(.system(size: 44))
-                .foregroundStyle(.tint)
+            BrandLogo(size: 80)
             Text("Autodarts Control").font(.largeTitle.bold())
             Text("Verwaltung deines Autodarts-Raspberry-Pi")
                 .foregroundStyle(.secondary)
@@ -181,6 +201,7 @@ struct ConnectionView: View {
         }
         .padding(32)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, spacing: 0) { BannerStack() }
     }
 
     @ViewBuilder

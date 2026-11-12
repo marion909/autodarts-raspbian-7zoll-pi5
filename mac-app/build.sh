@@ -31,9 +31,8 @@ rm -rf "${APP}"
 mkdir -p "${APP}/Contents/MacOS" "${APP}/Contents/Resources"
 cp "${BIN_DIR}/AutodartsControl" "${APP}/Contents/MacOS/AutodartsControl"
 cp Resources/Info.plist "${APP}/Contents/Info.plist"
-if [[ -f Resources/AppIcon.icns ]]; then
-  cp Resources/AppIcon.icns "${APP}/Contents/Resources/AppIcon.icns"
-fi
+# Icon, Menüleisten-Symbol und Logo (erzeugt mit ../tools/make-brand-assets.sh)
+cp Resources/AppIcon.icns Resources/*.png "${APP}/Contents/Resources/"
 
 xattr -cr "${APP}" 2>/dev/null || true
 codesign --force --deep --sign - "${APP}"

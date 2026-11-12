@@ -147,6 +147,13 @@ Benutzer darf `sudo` ohne Passwort (Standard unter Raspberry Pi OS).
 
 Alle Funktionen gibt es auch im Terminal des Pi: `autodarts-ctl help`.
 
+## Logo und Bilder
+
+Bootscreen, Wallpaper, App-Icon und Menüleisten-Symbol werden aus den offiziellen Autodarts-SVGs in `assets/brand/`
+(Quelle: autodarts.com/brand) erzeugt. Das Logo gehört Autodarts bzw. Winmau. Bei einem neuen Logo die SVGs ersetzen und
+auf dem Mac `./tools/make-brand-assets.sh` ausführen. Das schreibt `assets/boot-splash.png`, `assets/wallpaper.jpg` und
+`mac-app/Resources/`.
+
 ## Display-Verhalten
 
 Das Skript `autodarts-display.sh` läuft synchron vor dem Chromium-Start (keine Race Conditions mehr) und
@@ -228,6 +235,7 @@ files/systemd/              # systemd-Service für den Update-Check
 files/share/                # Offline-Warteseite
 assets/                     # boot-splash.png, wallpaper.jpg
 mac-app/                    # macOS-App "Autodarts Control" (Swift, build.sh)
+tools/                      # make-brand-assets.sh: erzeugt Bilder aus den Logo-SVGs (nur Mac)
 ```
 
 ## Troubleshooting

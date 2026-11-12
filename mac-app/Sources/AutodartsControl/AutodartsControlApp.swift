@@ -17,9 +17,46 @@ struct AutodartsControlApp: App {
             MenuBarContent()
                 .environmentObject(pi)
         } label: {
-            Image(systemName: pi.menuBarSymbol)
+            if let symbol = pi.menuBarSymbol {
+                Image(systemName: symbol)
+            } else {
+                Image(nsImage: BrandImages.menuBar)
+            }
         }
         .menuBarExtraStyle(.menu)
+    }
+}
+
+/// Autodarts-Marke aus den App-Ressourcen (erzeugt mit tools/make-brand-assets.sh)
+enum BrandImages {
+    /// Template-Bild: macOS faerbt es passend zur Menueleiste ein
+    static let menuBar: NSImage = {
+        let image = NSImage(named: "MenuBarIcon")
+            ?? NSImage(systemSymbolName: "scope", accessibilityDescription: "Autodarts")
+            ?? NSImage()
+        image.size = NSSize(width: 18, height: 18)
+        image.isTemplate = true
+        return image
+    }()
+
+    static let logo: NSImage? = NSImage(named: "Logo")
+}
+
+struct BrandLogo: View {
+    var size: CGFloat = 72
+
+    var body: some View {
+        if let logo = BrandImages.logo {
+            Image(nsImage: logo)
+                .resizable()
+                .scaledToFit()
+                .frame(width: size, height: size)
+        } else {
+            Image(systemName: "scope")
+                .font(.system(size: size * 0.6))
+                .foregroundStyle(.tint)
+                .frame(width: size, height: size)
+        }
     }
 }
 
