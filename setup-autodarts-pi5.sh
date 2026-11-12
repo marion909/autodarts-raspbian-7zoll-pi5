@@ -263,6 +263,18 @@ else
     apt-get install -y pulseaudio-module-bluetooth || true
   fi
 
+  # Läuft bereits eine Desktop-Sitzung, kennt deren Audio-Server das neu installierte
+  # Bluetooth-Modul noch nicht (Ton käme erst nach einem Neustart): Audio-Dienste neu starten.
+  target_uid="$(id -u "${TARGET_USER}")"
+  if [[ -S "/run/user/${target_uid}/bus" ]]; then
+    echo "Audio-Dienste der laufenden Sitzung neu starten ..."
+    runuser -u "${TARGET_USER}" -- env \
+      XDG_RUNTIME_DIR="/run/user/${target_uid}" \
+      DBUS_SESSION_BUS_ADDRESS="unix:path=/run/user/${target_uid}/bus" \
+      systemctl --user restart pipewire wireplumber pipewire-pulse >/dev/null 2>&1 || true
+    sleep 3
+  fi
+
   bt_args=()
   if [[ "${BT_SPEAKER}" != "yes" ]]; then
     bt_args=("${BT_SPEAKER}")

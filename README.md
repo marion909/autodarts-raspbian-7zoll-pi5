@@ -200,6 +200,7 @@ assets/                     # boot-splash.png, wallpaper.jpg
 - Seite lädt nicht: Netzwerk prüfen. Bis zur Verbindung zeigt der Kiosk eine Warteseite und versucht es alle 5 Sekunden erneut
 - Displays falsch: `/etc/default/autodarts-display` prüfen oder Setup erneut ausführen und neu starten
 - Eine alte `.deb`-Version von AutoDarts Desktop (1.x) vorher entfernen: `sudo apt remove autodarts-desktop`
+- Bluetooth gekoppelt, aber kein Ton: Audio-Dienste neu starten (`systemctl --user restart pipewire wireplumber pipewire-pulse`) oder neu booten, dann das Gerät im Lautsprecher-Menü der Taskleiste wählen
 - Bluetooth: Lautsprecher im Pairing-Modus? Sonst `sudo autodarts-bt-speaker` erneut starten; Dienst prüfen mit `systemctl status bluetooth`
 - Update-Probleme: `cat /var/log/autodarts-update.log` und `systemctl status autodarts-update-check.service`
 - Alte pcmanfm-Desktop-Konfiguration wird beim Setup einmalig als `desktop-items-0.conf.autodarts-bak` gesichert
