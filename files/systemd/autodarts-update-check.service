@@ -1,0 +1,12 @@
+[Unit]
+Description=AutoDarts Update Check at boot
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/autodarts-update-check.sh
+TimeoutStartSec=20min
+
+[Install]
+WantedBy=multi-user.target

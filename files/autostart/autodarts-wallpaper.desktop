@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Autodarts Wallpaper
+Comment=Setzt den Desktop-Hintergrund beim Login
+Exec=/usr/local/bin/autodarts-set-wallpaper.sh
+X-GNOME-Autostart-enabled=true
+NoDisplay=false

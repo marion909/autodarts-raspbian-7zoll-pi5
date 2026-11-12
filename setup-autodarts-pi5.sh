@@ -6,7 +6,13 @@ if [[ "${EUID}" -ne 0 ]]; then
   exit 1
 fi
 
-TARGET_USER="${SUDO_USER:-pi}"
+export DEBIAN_FRONTEND=noninteractive
+
+TARGET_USER="${TARGET_USER:-${SUDO_USER:-pi}}"
+if ! id -u "${TARGET_USER}" >/dev/null 2>&1; then
+  echo "Benutzer '${TARGET_USER}' existiert nicht. Mit TARGET_USER=<name> den Desktop-Benutzer angeben."
+  exit 1
+fi
 TARGET_HOME="$(getent passwd "${TARGET_USER}" | cut -d: -f6)"
 if [[ -z "${TARGET_HOME}" ]]; then
   echo "Konnte Home-Verzeichnis von ${TARGET_USER} nicht ermitteln."
@@ -14,55 +20,66 @@ if [[ -z "${TARGET_HOME}" ]]; then
 fi
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+FILES_DIR="${SCRIPT_DIR}/files"
 ASSETS_DIR="${SCRIPT_DIR}/assets"
 BOOT_SPLASH_SRC="${ASSETS_DIR}/boot-splash.png"
 WALLPAPER_SRC="${ASSETS_DIR}/wallpaper.jpg"
+SHARE_DIR="/usr/local/share/autodarts"
 AUTODARTS_EXTENSION_ID="oolfddhehmbpdnlmoljmllcdggmkgihh"
 AUTODARTS_EXTENSION_UPDATE_URL="https://clients2.google.com/service/update2/crx"
 
+if [[ ! -d "${FILES_DIR}" ]]; then
+  echo "Verzeichnis '${FILES_DIR}' fehlt. Bitte das komplette Repository verwenden (oder install.sh)."
+  exit 1
+fi
+
+TOTAL_STEPS=8
+STEP=0
+step() {
+  STEP=$((STEP + 1))
+  echo "[${STEP}/${TOTAL_STEPS}] $*"
+}
+
+# --- Rotation wählen -------------------------------------------------------
+# ROTATION_OPTION kann per Umgebungsvariable gesetzt werden. Sonst wird,
+# falls ein Terminal vorhanden ist (auch bei "curl | sudo bash"), gefragt.
 ROTATION_OPTION="${ROTATION_OPTION:-}"
-if [[ -z "${ROTATION_OPTION}" && -t 0 ]]; then
+if [[ -z "${ROTATION_OPTION}" ]] && (exec </dev/tty) 2>/dev/null; then
   echo ""
   echo "Screen Rotation wählen:"
   echo "  1) Keine Rotation"
   echo "  2) 90°"
   echo "  3) -90°"
   echo "  4) 180°"
-  read -r -p "Option [1-4, Enter=1]: " ROTATION_OPTION
+  read -r -p "Option [1-4, Enter=1]: " ROTATION_OPTION </dev/tty || ROTATION_OPTION=""
 fi
 ROTATION_OPTION="${ROTATION_OPTION:-1}"
 
-ROTATION_XRANDR="normal"
-ROTATION_LABEL="0"
 case "${ROTATION_OPTION}" in
-  1)
-    ROTATION_XRANDR="normal"
-    ROTATION_LABEL="0"
-    ;;
-  2)
-    ROTATION_XRANDR="right"
-    ROTATION_LABEL="90"
-    ;;
-  3)
-    ROTATION_XRANDR="left"
-    ROTATION_LABEL="-90"
-    ;;
-  4)
-    ROTATION_XRANDR="inverted"
-    ROTATION_LABEL="180"
-    ;;
+  1) ROTATION_XRANDR="normal"; ROTATION_LABEL="0" ;;
+  2) ROTATION_XRANDR="right"; ROTATION_LABEL="90" ;;
+  3) ROTATION_XRANDR="left"; ROTATION_LABEL="-90" ;;
+  4) ROTATION_XRANDR="inverted"; ROTATION_LABEL="180" ;;
   *)
     echo "Ungültige Rotation-Option '${ROTATION_OPTION}', nutze 1 (keine Rotation)."
+    ROTATION_OPTION="1"
     ROTATION_XRANDR="normal"
     ROTATION_LABEL="0"
     ;;
 esac
 
-echo "[1/6] Pakete aktualisieren"
+# Display-Parameter (per Umgebungsvariable überschreibbar)
+DSI_MODE="${DSI_MODE:-800x480}"
+DSI_SCALE="${DSI_SCALE:-1.2x1.2}"
+MIRROR_HDMI="${MIRROR_HDMI:-1}"
+
+# --- 1) Pakete ---------------------------------------------------------------
+step "Pakete aktualisieren"
 apt-get update
 apt-get -y upgrade
 
-echo "[2/6] Chromium + Kiosk Abhängigkeiten installieren"
+# --- 2) Chromium + Abhängigkeiten ---------------------------------------------
+step "Chromium + Kiosk Abhängigkeiten installieren"
 CHROMIUM_PACKAGE="chromium"
 if ! apt-cache show chromium >/dev/null 2>&1; then
   CHROMIUM_PACKAGE="chromium-browser"
@@ -75,18 +92,36 @@ apt-get install -y --no-install-recommends \
   unclutter \
   x11-xserver-utils
 
-echo "[3/6] Autodarts Desktop (ARM64) installieren"
-AUTODARTS_URL="$(curl -fsSL https://autodarts.io/downloads | grep -oE 'https://get\.autodarts\.io/desktop/linux/arm64/[^" ]+\.deb' | head -n1 || true)"
-if [[ -z "${AUTODARTS_URL}" ]]; then
-  AUTODARTS_URL="https://get.autodarts.io/desktop/linux/arm64/autodarts-desktop_1.5.0_arm64.deb"
+# --- 3) Skripte, Service, Autostart ------------------------------------------
+step "Skripte, Update-Service und Autostart installieren"
+
+# Aufräumen von Vorgängerversionen (separate Rotations-/Mirror-Skripte)
+rm -f /usr/local/bin/autodarts-rotate-display.sh \
+  /usr/local/bin/autodarts-mirror-display.sh \
+  /etc/xdg/autostart/autodarts-rotation.desktop \
+  /etc/xdg/autostart/autodarts-mirror.desktop \
+  /etc/default/autodarts-display-rotation
+
+for script in autodarts-kiosk.sh autodarts-display.sh autodarts-update-check.sh autodarts-set-wallpaper.sh; do
+  install -D -m 0755 "${FILES_DIR}/bin/${script}" "/usr/local/bin/${script}"
+done
+
+install -D -m 0644 "${FILES_DIR}/share/offline.html" "${SHARE_DIR}/offline.html"
+install -D -m 0644 "${FILES_DIR}/autostart/autodarts-kiosk.desktop" /etc/xdg/autostart/autodarts-kiosk.desktop
+install -D -m 0644 "${FILES_DIR}/systemd/autodarts-update-check.service" /etc/systemd/system/autodarts-update-check.service
+
+systemctl daemon-reload
+systemctl enable autodarts-update-check.service >/dev/null 2>&1 || true
+
+# --- 4) AutoDarts Desktop ------------------------------------------------------
+step "Autodarts Desktop (ARM64) installieren"
+if ! /usr/local/bin/autodarts-update-check.sh --install; then
+  echo "WARNUNG: AutoDarts Desktop konnte nicht installiert werden (siehe /var/log/autodarts-update.log)."
+  echo "         Setup erneut ausführen oder das .deb manuell von https://autodarts.io/downloads installieren."
 fi
 
-tmp_deb="/tmp/autodarts-desktop_arm64.deb"
-curl -fL "${AUTODARTS_URL}" -o "${tmp_deb}"
-apt-get install -y "${tmp_deb}"
-rm -f "${tmp_deb}"
-
-echo "[Bonus] Chrome Extension 'Tools for Autodarts' konfigurieren"
+# --- 5) Chromium-Erweiterung ---------------------------------------------------
+step "Chrome Extension 'Tools for Autodarts' konfigurieren"
 for policy_dir in /etc/chromium/policies/managed /etc/chromium-browser/policies/managed; do
   mkdir -p "${policy_dir}"
   cat >"${policy_dir}/autodarts-tools-extension.json" <<EOF
@@ -98,238 +133,20 @@ for policy_dir in /etc/chromium/policies/managed /etc/chromium-browser/policies/
 EOF
 done
 
-echo "[Bonus] AutoDarts Update-Check bei jedem Boot aktivieren"
-cat >/usr/local/bin/autodarts-update-check.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
+# --- 6) Display-Konfiguration ---------------------------------------------------
+step "Display-Konfiguration schreiben (Rotation ${ROTATION_LABEL}°)"
+{
+  echo "# Wird von /usr/local/bin/autodarts-display.sh gelesen (Setup erneut ausführen oder hier anpassen)."
+  printf 'ROTATION_OPTION=%q\n' "${ROTATION_OPTION}"
+  printf 'ROTATION_DEGREES=%q\n' "${ROTATION_LABEL}"
+  printf 'ROTATION_XRANDR=%q\n' "${ROTATION_XRANDR}"
+  printf 'DSI_MODE=%q\n' "${DSI_MODE}"
+  printf 'DSI_SCALE=%q\n' "${DSI_SCALE}"
+  printf 'MIRROR_HDMI=%q\n' "${MIRROR_HDMI}"
+} >/etc/default/autodarts-display
 
-LOG_FILE="/var/log/autodarts-update.log"
-
-log() {
-  echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >>"${LOG_FILE}"
-}
-
-if ! command -v curl >/dev/null 2>&1; then
-  log "curl fehlt, Update-Check übersprungen"
-  exit 0
-fi
-
-if ! dpkg -s autodarts-desktop >/dev/null 2>&1; then
-  log "autodarts-desktop ist nicht installiert, Update-Check übersprungen"
-  exit 0
-fi
-
-CURRENT_VERSION="$(dpkg-query -W -f='${Version}' autodarts-desktop 2>/dev/null || true)"
-LATEST_URL="$(curl -fsSL https://autodarts.io/downloads | grep -oE 'https://get\.autodarts\.io/desktop/linux/arm64/[^" ]+\.deb' | head -n1 || true)"
-
-if [[ -z "${LATEST_URL}" ]]; then
-  log "Konnte aktuelle ARM64-URL nicht ermitteln"
-  exit 0
-fi
-
-LATEST_FILE="$(basename "${LATEST_URL}")"
-LATEST_VERSION="$(echo "${LATEST_FILE}" | sed -nE 's/^autodarts-desktop_([^_]+)_arm64\.deb$/\1/p')"
-
-if [[ -z "${LATEST_VERSION}" ]]; then
-  log "Konnte Versionsnummer aus ${LATEST_FILE} nicht lesen"
-  exit 0
-fi
-
-if dpkg --compare-versions "${LATEST_VERSION}" le "${CURRENT_VERSION}"; then
-  log "Kein Update nötig (installiert=${CURRENT_VERSION}, aktuell=${LATEST_VERSION})"
-  exit 0
-fi
-
-TMP_DEB="/tmp/autodarts-desktop-update_arm64.deb"
-log "Update gefunden: ${CURRENT_VERSION} -> ${LATEST_VERSION}"
-
-if ! curl -fL "${LATEST_URL}" -o "${TMP_DEB}"; then
-  log "Download fehlgeschlagen: ${LATEST_URL}"
-  exit 0
-fi
-
-if apt-get install -y "${TMP_DEB}"; then
-  log "Update erfolgreich installiert: ${LATEST_VERSION}"
-else
-  log "Update-Installation fehlgeschlagen"
-fi
-
-rm -f "${TMP_DEB}"
-EOF
-chmod +x /usr/local/bin/autodarts-update-check.sh
-
-cat >/etc/systemd/system/autodarts-update-check.service <<'EOF'
-[Unit]
-Description=AutoDarts Update Check at boot
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-Type=oneshot
-ExecStart=/usr/local/bin/autodarts-update-check.sh
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable autodarts-update-check.service >/dev/null 2>&1 || true
-
-echo "[4/6] Kiosk Startskript anlegen"
-cat >/usr/local/bin/autodarts-kiosk.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-URL="https://play.autodarts.io/"
-
-xset s off || true
-xset -dpms || true
-xset s noblank || true
-unclutter -idle 0.5 -root &
-
-if [[ -x /usr/local/bin/autodarts-mirror-display.sh ]]; then
-  /usr/local/bin/autodarts-mirror-display.sh || true
-fi
-
-while ! curl -Is https://play.autodarts.io >/dev/null 2>&1; do
-  sleep 2
-done
-
-CHROMIUM_BIN="$(command -v chromium || command -v chromium-browser || true)"
-if [[ -z "${CHROMIUM_BIN}" ]]; then
-  echo "Chromium wurde nicht gefunden."
-  exit 1
-fi
-
-if command -v autodarts-desktop >/dev/null 2>&1; then
-  autodarts-desktop &
-  sleep 5
-fi
-
-KIOSK_PROFILE="${HOME}/.config/autodarts-kiosk"
-mkdir -p "${KIOSK_PROFILE}"
-
-PREF_FILE="${KIOSK_PROFILE}/Default/Preferences"
-mkdir -p "${KIOSK_PROFILE}/Default"
-if [[ -f "${PREF_FILE}" ]]; then
-  sed -i 's/"exited_cleanly":false/"exited_cleanly":true/g' "${PREF_FILE}" || true
-  sed -i 's/"exit_type":"Crashed"/"exit_type":"Normal"/g' "${PREF_FILE}" || true
-fi
-
-"${CHROMIUM_BIN}" \
-  --ozone-platform=x11 \
-  --start-fullscreen \
-  --enable-virtual-keyboard \
-  --enable-features=VirtualKeyboard \
-  --force-renderer-accessibility \
-  --touch-events=enabled \
-  --force-device-scale-factor=0.85 \
-  --password-store=basic \
-  --user-data-dir="${KIOSK_PROFILE}" \
-  --profile-directory=Default \
-  --noerrdialogs \
-  --disable-infobars \
-  --disable-session-crashed-bubble \
-  --no-first-run \
-  --no-default-browser-check \
-  --autoplay-policy=no-user-gesture-required \
-  "${URL}"
-EOF
-chmod +x /usr/local/bin/autodarts-kiosk.sh
-
-echo "[5/6] Desktop-Autostart konfigurieren"
-mkdir -p /etc/xdg/autostart
-cat >/etc/xdg/autostart/autodarts-kiosk.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Autodarts Kiosk
-Comment=Startet play.autodarts.io im Vollbild
-Exec=/usr/local/bin/autodarts-kiosk.sh
-X-GNOME-Autostart-enabled=true
-NoDisplay=false
-EOF
-
-cat >/usr/local/bin/autodarts-rotate-display.sh <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-
-ROTATE="${ROTATION_XRANDR}"
-
-for _ in 1 2 3 4 5 6 7 8; do
-  PRIMARY_DISPLAY="\$(xrandr --query | awk '/ connected primary / {print \$1; exit}')"
-  if [[ -z "\${PRIMARY_DISPLAY}" ]]; then
-    PRIMARY_DISPLAY="\$(xrandr --query | awk '/ connected / {print \$1; exit}')"
-  fi
-  if [[ -n "\${PRIMARY_DISPLAY}" ]]; then
-    xrandr --output "\${PRIMARY_DISPLAY}" --rotate "\${ROTATE}" >/dev/null 2>&1 || true
-    xrandr --output DSI-2 --mode 800x480 --scale 1.2x1.2 --primary >/dev/null 2>&1 || true
-    exit 0
-  fi
-  sleep 1
-done
-EOF
-chmod +x /usr/local/bin/autodarts-rotate-display.sh
-
-cat >/usr/local/bin/autodarts-mirror-display.sh <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-TARGET_USER="${SUDO_USER:-${USER:-pi}}"
-TARGET_HOME="$(getent passwd "${TARGET_USER}" | cut -d: -f6)"
-
-export DISPLAY="${DISPLAY:-:0}"
-if [[ -n "${TARGET_HOME}" ]]; then
-  export XAUTHORITY="${XAUTHORITY:-${TARGET_HOME}/.Xauthority}"
-fi
-
-for _ in 1 2 3 4 5 6 7 8 9 10; do
-  if ! xrandr --query >/dev/null 2>&1; then
-    sleep 1
-    continue
-  fi
-
-  DSI_OUTPUT="$(xrandr --query | awk '/^DSI-[0-9]+ connected/ {print $1; exit}')"
-  HDMI_OUTPUT="$(xrandr --query | awk '/^HDMI-[0-9]+ connected/ {print $1; exit}')"
-
-  if [[ -n "${DSI_OUTPUT}" && -n "${HDMI_OUTPUT}" ]]; then
-    xrandr --output "${HDMI_OUTPUT}" --same-as "${DSI_OUTPUT}" --auto >/dev/null 2>&1 || true
-    exit 0
-  fi
-
-  sleep 1
-done
-
-exit 0
-EOF
-chmod +x /usr/local/bin/autodarts-mirror-display.sh
-
-cat >/etc/xdg/autostart/autodarts-rotation.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Autodarts Screen Rotation
-Comment=Setzt Bildschirmrotation beim Login
-Exec=/usr/local/bin/autodarts-rotate-display.sh
-X-GNOME-Autostart-enabled=true
-NoDisplay=false
-EOF
-
-cat >/etc/xdg/autostart/autodarts-mirror.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Autodarts Display Mirror
-Comment=Spiegelt DSI auf HDMI beim Login
-Exec=/usr/local/bin/autodarts-mirror-display.sh
-X-GNOME-Autostart-enabled=true
-NoDisplay=false
-EOF
-
-cat >/etc/default/autodarts-display-rotation <<EOF
-ROTATION_OPTION=${ROTATION_OPTION}
-ROTATION_DEGREES=${ROTATION_LABEL}
-ROTATION_XRANDR=${ROTATION_XRANDR}
-EOF
-
-echo "[Bonus] Bootscreen und Hintergrund setzen"
+# --- 7) Bootscreen + Wallpaper ---------------------------------------------------
+step "Bootscreen und Hintergrund setzen"
 if [[ -f "${BOOT_SPLASH_SRC}" ]]; then
   install -m 0644 "${BOOT_SPLASH_SRC}" /usr/share/plymouth/themes/pix/splash.png 2>/dev/null || true
   install -m 0644 "${BOOT_SPLASH_SRC}" /usr/share/plymouth/themes/pix/splash-16x9.png 2>/dev/null || true
@@ -340,72 +157,38 @@ if [[ -f "${BOOT_SPLASH_SRC}" ]]; then
 fi
 
 if [[ -f "${WALLPAPER_SRC}" ]]; then
-  WALLPAPER_DST="/usr/share/backgrounds/autodarts-wallpaper.jpg"
-  if [[ ! -d "/usr/share/backgrounds" ]]; then
-    mkdir -p /usr/local/share/backgrounds
-    WALLPAPER_DST="/usr/local/share/backgrounds/autodarts-wallpaper.jpg"
-  fi
-  mkdir -p "$(dirname "${WALLPAPER_DST}")"
-  install -m 0644 "${WALLPAPER_SRC}" "${WALLPAPER_DST}"
+  WALLPAPER_DST="${SHARE_DIR}/wallpaper.jpg"
+  install -D -m 0644 "${WALLPAPER_SRC}" "${WALLPAPER_DST}"
+  install -D -m 0644 "${FILES_DIR}/autostart/autodarts-wallpaper.desktop" /etc/xdg/autostart/autodarts-wallpaper.desktop
 
-  cat >/usr/local/bin/autodarts-set-wallpaper.sh <<EOF
-#!/usr/bin/env bash
-set -euo pipefail
-
-WALLPAPER="${WALLPAPER_DST}"
-if [[ ! -f "\${WALLPAPER}" ]]; then
-  exit 0
-fi
-
-for _ in 1 2 3 4 5; do
-  if command -v pcmanfm >/dev/null 2>&1; then
-    pcmanfm --set-wallpaper "\${WALLPAPER}" --wallpaper-mode=stretch >/dev/null 2>&1 || true
-  fi
-  sleep 1
-done
-EOF
-  chmod +x /usr/local/bin/autodarts-set-wallpaper.sh
-
-  cat >/etc/xdg/autostart/autodarts-wallpaper.desktop <<'EOF'
-[Desktop Entry]
-Type=Application
-Name=Autodarts Wallpaper
-Comment=Setzt den Desktop-Hintergrund beim Login
-Exec=/usr/local/bin/autodarts-set-wallpaper.sh
-X-GNOME-Autostart-enabled=true
-NoDisplay=false
-EOF
-
-  mkdir -p "${TARGET_HOME}/.config/pcmanfm/LXDE"
-  mkdir -p "${TARGET_HOME}/.config/pcmanfm/LXDE-pi"
-  cat >"${TARGET_HOME}/.config/pcmanfm/LXDE/desktop-items-0.conf" <<EOF
+  # Bestehende pcmanfm-Konfiguration einmalig sichern, dann überschreiben
+  for profile in LXDE LXDE-pi; do
+    conf_dir="${TARGET_HOME}/.config/pcmanfm/${profile}"
+    conf_file="${conf_dir}/desktop-items-0.conf"
+    mkdir -p "${conf_dir}"
+    if [[ -f "${conf_file}" && ! -f "${conf_file}.autodarts-bak" ]]; then
+      cp -a "${conf_file}" "${conf_file}.autodarts-bak"
+    fi
+    cat >"${conf_file}" <<EOF
 [*]
 wallpaper=${WALLPAPER_DST}
 wallpaper_mode=stretch
 desktop_bg=#000000
 show_wm_menu=0
 EOF
-
-  cat >"${TARGET_HOME}/.config/pcmanfm/LXDE-pi/desktop-items-0.conf" <<EOF
-[*]
-wallpaper=${WALLPAPER_DST}
-wallpaper_mode=stretch
-desktop_bg=#000000
-show_wm_menu=0
-EOF
+  done
 fi
 
+# --- 8) Session, Autologin, Keyring -------------------------------------------------
 if command -v raspi-config >/dev/null 2>&1; then
-  echo "[6/6] X11-Session für On-Screen-Keyboard aktivieren"
+  step "X11-Session für On-Screen-Keyboard und Auto-Login auf Desktop aktivieren"
   raspi-config nonint do_wayland W1 || true
-
-  echo "[6/6] Auto-Login auf Desktop aktivieren"
   raspi-config nonint do_boot_behaviour B4 || true
 else
-  echo "[6/6] raspi-config nicht gefunden, Auto-Login bitte manuell aktivieren."
+  step "raspi-config nicht gefunden, Auto-Login und X11 bitte manuell aktivieren"
 fi
 
-echo "[Bonus] GNOME Keyring Prompt deaktivieren"
+echo "GNOME Keyring Prompt deaktivieren"
 mkdir -p "${TARGET_HOME}/.config/autostart"
 for keyring_file in \
   gnome-keyring-pkcs11.desktop \
@@ -419,7 +202,7 @@ Hidden=true
 EOF
 done
 
-chown -R "${TARGET_USER}":"${TARGET_USER}" "${TARGET_HOME}"/.config 2>/dev/null || true
+chown -R "${TARGET_USER}:" "${TARGET_HOME}/.config" || true
 
 echo
 echo "Fertig. Bitte neu starten: sudo reboot"

@@ -2,20 +2,70 @@
 
 Produktionsnahes Setup für Raspberry Pi OS Desktop mit automatischem Kiosk-Start für AutoDarts.
 
-## Features (aktueller Stand)
+## Installation (ein Befehl)
 
-- installiert **AutoDarts Desktop** (Linux ARM64)
+Auf dem Pi (Raspberry Pi OS 64-bit mit Desktop, Internet erforderlich):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/marion909/autodarts-raspbian-7zoll-pi5/main/install.sh | sudo bash
+```
+
+Danach neu starten:
+
+```bash
+sudo reboot
+```
+
+Das Skript fragt während der Installation nach der Screen-Rotation. Ohne Rückfrage:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/marion909/autodarts-raspbian-7zoll-pi5/main/install.sh | sudo ROTATION_OPTION=2 bash
+```
+
+| `ROTATION_OPTION` | Rotation |
+| ----------------- | -------- |
+| `1` (Standard)    | keine    |
+| `2`               | 90°      |
+| `3`               | -90°     |
+| `4`               | 180°     |
+
+Weitere optionale Variablen (nach `sudo` angeben):
+
+| Variable         | Standard                                  | Bedeutung                                   |
+| ---------------- | ----------------------------------------- | ------------------------------------------- |
+| `AUTODARTS_REF`  | `main`                                    | Tag oder Branch des Repos (z. B. fester Stand) |
+| `AUTODARTS_REPO` | `marion909/autodarts-raspbian-7zoll-pi5`  | anderes Repository (eigener Fork)           |
+| `TARGET_USER`    | der `sudo`-Aufrufer                       | Desktop-Benutzer, für den eingerichtet wird |
+| `DSI_MODE`       | `800x480`                                 | Auflösung des DSI-Displays                  |
+| `DSI_SCALE`      | `1.2x1.2`                                 | xrandr-Skalierung des DSI-Displays          |
+| `MIRROR_HDMI`    | `1`                                       | `0` = HDMI nicht auf DSI spiegeln           |
+
+> Hinweis: Ein Skript per `curl | sudo bash` auszuführen heißt, dem Repository zu vertrauen.
+> Wer vorher lesen möchte, lädt [install.sh](install.sh) zuerst herunter, oder klont das Repo und startet
+> `sudo ./setup-autodarts-pi5.sh` (siehe unten).
+
+### Installation aus einem Clone
+
+```bash
+git clone https://github.com/marion909/autodarts-raspbian-7zoll-pi5.git
+cd autodarts-raspbian-7zoll-pi5
+sudo ./setup-autodarts-pi5.sh
+sudo reboot
+```
+
+## Features
+
+- installiert **AutoDarts Desktop** (Linux ARM64) und prüft bei jedem Boot auf Updates (`systemd`)
 - installiert **Chromium** und startet `https://play.autodarts.io/` im Fullscreen
+- startet Chromium nach einem Absturz automatisch neu (mit Bremse gegen Crash-Schleifen)
+- zeigt ohne Netzwerk eine lokale Warteseite, die selbstständig erneut versucht
 - installiert automatisch die Chrome-Erweiterung **Tools for Autodarts** per Policy
 - unterdrückt typische Chromium-Dialoge wie **Restore pages / First run / Default browser check**
-- setzt beim Login die gewünschte **Screen-Rotation**
-- setzt beim Login zusätzlich für DSI: `xrandr --output DSI-2 --mode 800x480 --scale 1.2x1.2 --primary`
-- spiegelt DSI automatisch auf HDMI (wenn beide Displays verbunden sind)
+- setzt beim Login Screen-Rotation, DSI-Auflösung/Skalierung und spiegelt DSI auf HDMI (falls angeschlossen)
 - aktiviert Auto-Login (Desktop) und erzwingt X11-Session
 - setzt optional Boot-Splash und Desktop-Wallpaper aus `assets/`
-- prüft bei jedem Boot auf AutoDarts-Updates (`systemd` Service)
 
-## 1) SD-Karte vorbereiten
+## SD-Karte vorbereiten
 
 1. Raspberry Pi Imager öffnen
 2. OS wählen: **Raspberry Pi OS (64-bit) mit Desktop**
@@ -26,42 +76,31 @@ Produktionsnahes Setup für Raspberry Pi OS Desktop mit automatischem Kiosk-Star
    - SSH aktivieren (optional)
 4. Flashen und Pi starten
 
-## 2) Setup ausführen
-
-```bash
-chmod +x setup-autodarts-pi5.sh
-sudo ./setup-autodarts-pi5.sh
-sudo reboot
-```
-
-Während des Setups kannst du die Rotation wählen:
-
-- `1` = keine Rotation
-- `2` = `90°`
-- `3` = `-90°`
-- `4` = `180°`
-
-Optional ohne Rückfrage:
-
-```bash
-sudo ROTATION_OPTION=2 ./setup-autodarts-pi5.sh
-```
-
 ## Ergebnis nach dem Neustart
 
 - Desktop-Login erfolgt automatisch
 - AutoDarts Desktop startet
 - Chromium startet im Vollbild mit `https://play.autodarts.io/`
-- Restore/First-Run-Dialoge sind weitgehend unterdrückt
-- DSI-Skalierung und Rotation werden beim Login gesetzt
+- DSI-Skalierung und Rotation werden vor dem Browserstart gesetzt
 - HDMI wird (bei Verbindung) auf DSI gespiegelt
 - GNOME-Keyring-Prompt ist deaktiviert
 
 ## Display-Verhalten
 
-- DSI-Fix im Setup: `DSI-2` auf `800x480` mit `scale 1.2x1.2`
-- Mirror-Skript erkennt Ausgänge dynamisch (`DSI-*` und `HDMI-*`) und nutzt `--same-as`
-- Hinweis: bei stark abweichenden Seitenverhältnissen (DSI vs TV) können Ränder/Skalierungseffekte auftreten
+Das Skript `autodarts-display.sh` läuft synchron vor dem Chromium-Start (keine Race Conditions mehr) und
+liest `/etc/default/autodarts-display`:
+
+```bash
+ROTATION_XRANDR=normal   # normal | right | left | inverted
+DSI_MODE=800x480
+DSI_SCALE=1.2x1.2
+MIRROR_HDMI=1
+```
+
+- Der DSI-Ausgang (`DSI-*`) und der HDMI-Ausgang (`HDMI-*`) werden dynamisch erkannt
+- Gespiegelt wird per `xrandr --same-as`
+- Bei stark abweichenden Seitenverhältnissen (DSI vs TV) können Ränder/Skalierungseffekte auftreten
+- Werte lassen sich in der Datei direkt ändern (wirksam nach dem nächsten Login) oder durch erneutes Setup
 
 ## AutoDarts manuell starten
 
@@ -84,31 +123,46 @@ http://<RASPBERRY_PI_IP>:3180
 
 - https://chromewebstore.google.com/detail/tools-for-autodarts/oolfddhehmbpdnlmoljmllcdggmkgihh
 
+## Updates
+
+- Der Service `autodarts-update-check.service` prüft bei jedem Boot die neueste ARM64-Version auf
+  `autodarts.io/downloads`, lädt sie bei Bedarf herunter, prüft das Paket (Name und Architektur) und installiert es
+- Log: `/var/log/autodarts-update.log`, manuell ausführen: `sudo /usr/local/bin/autodarts-update-check.sh`
+- Das Setup selbst lässt sich jederzeit erneut ausführen (idempotent), um Skripte auf den neuesten Stand zu bringen
+
 ## Wichtige Pfade
 
-- Kiosk-Skript: `/usr/local/bin/autodarts-kiosk.sh`
-- Rotations-Skript: `/usr/local/bin/autodarts-rotate-display.sh`
-- Mirror-Skript: `/usr/local/bin/autodarts-mirror-display.sh`
-- Update-Log: `/var/log/autodarts-update.log`
-- Update-Service: `autodarts-update-check.service`
+| Pfad                                          | Inhalt                                       |
+| --------------------------------------------- | -------------------------------------------- |
+| `/usr/local/bin/autodarts-kiosk.sh`           | Kiosk-Start (Display, AutoDarts, Chromium)   |
+| `/usr/local/bin/autodarts-display.sh`         | Rotation, Skalierung, HDMI-Spiegelung        |
+| `/usr/local/bin/autodarts-update-check.sh`    | Update-Check                                 |
+| `/etc/default/autodarts-display`              | Display-Konfiguration                        |
+| `/usr/local/share/autodarts/`                 | Wallpaper und Offline-Seite                  |
+| `/var/log/autodarts-update.log`               | Update-Log                                   |
 
-Aktueller Chromium Skalierungsfaktor im Kiosk:
+Chromium-Skalierungsfaktor im Kiosk: `--force-device-scale-factor=0.85` (in `files/bin/autodarts-kiosk.sh`).
 
-- `--force-device-scale-factor=0.85`
+## Repository-Struktur
 
-## Assets
-
-Optional genutzte Dateien:
-
-- `assets/boot-splash.png`
-- `assets/wallpaper.jpg`
+```text
+install.sh                  # Single-line Installer (lädt das Repo und startet das Setup)
+setup-autodarts-pi5.sh      # eigentliches Setup
+start-autodarts.sh          # AutoDarts manuell starten
+files/bin/                  # Skripte, die nach /usr/local/bin installiert werden
+files/autostart/            # Desktop-Autostart-Einträge
+files/systemd/              # systemd-Service für den Update-Check
+files/share/                # Offline-Warteseite
+assets/                     # boot-splash.png, wallpaper.jpg
+```
 
 ## Troubleshooting
 
-- Falls Seite nicht lädt: Netzwerkverbindung prüfen
-- Falls Displays falsch sind: Setup erneut ausführen und neu starten
+- Seite lädt nicht: Netzwerk prüfen. Bis zur Verbindung zeigt der Kiosk eine Warteseite und versucht es alle 5 Sekunden erneut
+- Displays falsch: `/etc/default/autodarts-display` prüfen oder Setup erneut ausführen und neu starten
+- Update-Probleme: `cat /var/log/autodarts-update.log` und `systemctl status autodarts-update-check.service`
+- Alte pcmanfm-Desktop-Konfiguration wird beim Setup einmalig als `desktop-items-0.conf.autodarts-bak` gesichert
 
-```bash
-sudo ./setup-autodarts-pi5.sh
-sudo reboot
-```
+## Lizenz
+
+[MIT](LICENSE)
