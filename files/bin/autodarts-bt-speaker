@@ -3,6 +3,7 @@
 #
 #   sudo autodarts-bt-speaker            Suche + Auswahl im Terminal
 #   sudo autodarts-bt-speaker AA:BB:...  direkt mit dieser MAC-Adresse koppeln (ohne Suche)
+#   sudo autodarts-bt-speaker --list     nur suchen und maschinenlesbar ausgeben (MAC<TAB>Name<TAB>Audio 0|1)
 #
 # Der gewaehlte Lautsprecher wird in /etc/default/autodarts-bt gespeichert und
 # beim Login automatisch verbunden (autodarts-bt-connect.sh).
@@ -25,12 +26,17 @@ fi
 
 command -v bluetoothctl >/dev/null 2>&1 || die "bluetoothctl fehlt (Paket 'bluez' installieren)"
 
+LIST_MODE=0
 TARGET_MAC="${1:-}"
+if [[ "${TARGET_MAC}" == "--list" ]]; then
+  LIST_MODE=1
+  TARGET_MAC=""
+fi
 if [[ -n "${TARGET_MAC}" && ! "${TARGET_MAC}" =~ ${MAC_REGEX} ]]; then
   die "Ungültige MAC-Adresse '${TARGET_MAC}' (Format: AA:BB:CC:DD:EE:FF)"
 fi
 
-if [[ -z "${TARGET_MAC}" ]] && ! (exec <"${TTY_DEV}") 2>/dev/null; then
+if [[ -z "${TARGET_MAC}" && "${LIST_MODE}" -eq 0 ]] && ! (exec <"${TTY_DEV}") 2>/dev/null; then
   die "Kein Terminal für die Auswahl vorhanden. MAC-Adresse angeben: sudo autodarts-bt-speaker AA:BB:CC:DD:EE:FF"
 fi
 
@@ -67,17 +73,23 @@ DEV_AUDIO=()
 
 scan_devices() {
   local pid
-  echo
-  echo "Suche läuft (${SCAN_SECONDS} s) – Lautsprecher jetzt in den Pairing-Modus versetzen"
-  printf '  '
+  if [[ "${LIST_MODE}" -eq 0 ]]; then
+    echo
+    echo "Suche läuft (${SCAN_SECONDS} s) – Lautsprecher jetzt in den Pairing-Modus versetzen"
+    printf '  '
+  fi
   bluetoothctl --timeout "${SCAN_SECONDS}" scan on >/dev/null 2>&1 &
   pid=$!
   while kill -0 "${pid}" 2>/dev/null; do
-    printf '.'
+    if [[ "${LIST_MODE}" -eq 0 ]]; then
+      printf '.'
+    fi
     sleep 1
   done
   wait "${pid}" 2>/dev/null || true
-  echo
+  if [[ "${LIST_MODE}" -eq 0 ]]; then
+    echo
+  fi
 }
 
 # Fuegt Geraete aus $1 (Ausgabe von "bluetoothctl devices") hinzu; $2=1: nur Audio-Geraete, $2=0: nur uebrige
@@ -162,6 +174,19 @@ choose_device() {
     done
   done
 }
+
+if [[ "${LIST_MODE}" -eq 1 ]]; then
+  scan_devices
+  collect_devices
+  for ((i = 0; i < DEV_COUNT; i++)); do
+    audio_flag=0
+    if [[ -n "${DEV_AUDIO[i]}" ]]; then
+      audio_flag=1
+    fi
+    printf '%s\t%s\t%s\n' "${DEV_MACS[i]}" "${DEV_NAMES[i]}" "${audio_flag}"
+  done
+  exit 0
+fi
 
 if [[ -n "${TARGET_MAC}" ]]; then
   CHOSEN_MAC="${TARGET_MAC}"

@@ -1,0 +1,356 @@
+#!/usr/bin/env bash
+# Verwaltungs-Schnittstelle des Autodarts-Pi.
+# Wird von der Mac-App "Autodarts Control" per SSH benutzt, funktioniert aber auch im Terminal:
+#   autodarts-ctl help
+set -uo pipefail
+
+CTL_VERSION=1
+CTL_CONFIG="/etc/default/autodarts-ctl"
+DISPLAY_CONFIG="/etc/default/autodarts-display"
+UPDATE_CONFIG="/etc/default/autodarts-update"
+BT_CONFIG="/etc/default/autodarts-bt"
+SCREENSHOT_FILE="/tmp/autodarts-screenshot.png"
+
+if [[ "${EUID}" -ne 0 ]]; then
+  exec sudo -n "$0" "$@"
+fi
+
+TARGET_USER=""
+AUTODARTS_REPO="marion909/autodarts-raspbian-7zoll-pi5"
+AUTODARTS_REF="main"
+if [[ -r "${CTL_CONFIG}" ]]; then
+  # shellcheck disable=SC1090
+  source "${CTL_CONFIG}"
+fi
+TARGET_USER="${TARGET_USER:-${SUDO_USER:-pi}}"
+TARGET_HOME="$(getent passwd "${TARGET_USER}" | cut -d: -f6)"
+
+MAC_REGEX='^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$'
+SCALE_REGEX='^[0-9]+(\.[0-9]+)?x[0-9]+(\.[0-9]+)?$'
+MODE_REGEX='^[0-9]+x[0-9]+$'
+IPV4_REGEX='^[0-9]+(\.[0-9]+){3}$'
+
+die() {
+  echo "FEHLER: $*" >&2
+  exit 1
+}
+
+# key=value-Ausgabe (einzeilig)
+kv() {
+  local v="${2:-}"
+  v="${v//$'\n'/ }"
+  printf '%s=%s\n' "$1" "$v"
+}
+
+# Liest VAR aus einer Konfigurationsdatei, sonst Default
+cfg_get() {
+  (
+    # shellcheck disable=SC1090
+    source "$1" 2>/dev/null
+    v="${!2:-}"
+    echo "${v:-$3}"
+  )
+}
+
+is_running() {
+  if pgrep -f -- "$1" >/dev/null 2>&1; then echo 1; else echo 0; fi
+}
+
+# Befehl in der grafischen Sitzung des Desktop-Benutzers ausfuehren
+as_user() {
+  runuser -u "${TARGET_USER}" -- env DISPLAY=:0 XAUTHORITY="${TARGET_HOME}/.Xauthority" "$@"
+}
+
+# --- status ------------------------------------------------------------------------
+cmd_status() {
+  local ips temp throttled session web_port bt_mac bt_connected
+
+  kv ctl_version "${CTL_VERSION}"
+  kv hostname "$(hostname)"
+
+  ips="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -E "${IPV4_REGEX}" | paste -sd, - || true)"
+  kv ips "${ips}"
+
+  kv os "$(cfg_get /etc/os-release PRETTY_NAME "")"
+  kv kernel "$(uname -r)"
+  kv model "$(tr -d '\0' 2>/dev/null </proc/device-tree/model || true)"
+  kv uptime_seconds "$(cut -d. -f1 /proc/uptime 2>/dev/null || echo 0)"
+
+  temp=""
+  if command -v vcgencmd >/dev/null 2>&1; then
+    temp="$(vcgencmd measure_temp 2>/dev/null | sed -E "s/[^0-9.]//g")"
+    throttled="$(vcgencmd get_throttled 2>/dev/null | cut -d= -f2)"
+    kv throttled "${throttled}"
+  fi
+  if [[ -z "${temp}" && -r /sys/class/thermal/thermal_zone0/temp ]]; then
+    temp="$(awk '{printf "%.1f", $1/1000}' /sys/class/thermal/thermal_zone0/temp)"
+  fi
+  kv temp_c "${temp}"
+
+  kv load "$(cut -d' ' -f1 /proc/loadavg 2>/dev/null)"
+  kv mem_used_mb "$(awk '/MemTotal/ {t=$2} /MemAvailable/ {a=$2} END {printf "%d", (t-a)/1024}' /proc/meminfo 2>/dev/null)"
+  kv mem_total_mb "$(awk '/MemTotal/ {printf "%d", $2/1024}' /proc/meminfo 2>/dev/null)"
+  kv disk_used "$(df -P / 2>/dev/null | awk 'NR==2 {print $5}')"
+
+  session="unknown"
+  if pgrep -x Xorg >/dev/null 2>&1; then
+    session="x11"
+  elif pgrep -x labwc >/dev/null 2>&1 || pgrep -x wayfire >/dev/null 2>&1; then
+    session="wayland"
+  fi
+  kv session "${session}"
+
+  kv autodarts_version "$(cat /opt/autodarts/version 2>/dev/null || true)"
+  kv autodarts_running "$(is_running autodarts-desktop)"
+  kv kiosk_running "$(is_running 'user-data-dir=.*autodarts-kiosk')"
+  kv channel "$(cfg_get "${UPDATE_CONFIG}" AUTODARTS_CHANNEL stable)"
+
+  web_port="$(awk '/^\[api\]/ {a=1; next} /^\[/ {a=0} a && /^port/ {gsub(/[^0-9]/, "", $0); print; exit}' \
+    "${TARGET_HOME}/.config/autodarts-desktop/config.toml" 2>/dev/null || true)"
+  kv web_port "${web_port:-3180}"
+
+  kv rotation "$(cfg_get "${DISPLAY_CONFIG}" ROTATION_XRANDR normal)"
+  kv dsi_mode "$(cfg_get "${DISPLAY_CONFIG}" DSI_MODE 800x480)"
+  kv dsi_scale "$(cfg_get "${DISPLAY_CONFIG}" DSI_SCALE 1.2x1.2)"
+  kv mirror "$(cfg_get "${DISPLAY_CONFIG}" MIRROR_HDMI 1)"
+
+  bt_mac="$(cfg_get "${BT_CONFIG}" BT_SPEAKER_MAC "")"
+  kv bt_mac "${bt_mac}"
+  kv bt_name "$(cfg_get "${BT_CONFIG}" BT_SPEAKER_NAME "")"
+  bt_connected=0
+  if [[ -n "${bt_mac}" ]] && command -v bluetoothctl >/dev/null 2>&1; then
+    if timeout 5 bluetoothctl info "${bt_mac}" 2>/dev/null | grep -q 'Connected: yes'; then
+      bt_connected=1
+    fi
+  fi
+  kv bt_connected "${bt_connected}"
+
+  kv ssh_active "$(systemctl is-active ssh 2>/dev/null || echo unknown)"
+}
+
+# --- Anwendung / Kiosk / Energie -------------------------------------------------------
+cmd_restart_app() {
+  pkill -f autodarts-desktop >/dev/null 2>&1 || true
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    if ! pgrep -f autodarts-desktop >/dev/null 2>&1; then
+      break
+    fi
+    sleep 1
+  done
+  nohup setsid runuser -u "${TARGET_USER}" -- env DISPLAY=:0 XAUTHORITY="${TARGET_HOME}/.Xauthority" \
+    /usr/local/bin/autodarts-desktop >/dev/null 2>&1 </dev/null &
+  sleep 1
+  echo "ok: AutoDarts Desktop neu gestartet"
+}
+
+cmd_restart_kiosk() {
+  # Das Kiosk-Skript startet Chromium nach dem Beenden automatisch neu
+  pkill -f 'user-data-dir=.*autodarts-kiosk' >/dev/null 2>&1 || true
+  echo "ok: Chromium beendet, wird vom Kiosk-Skript neu gestartet"
+}
+
+cmd_reboot() {
+  (sleep 2; systemctl reboot) >/dev/null 2>&1 &
+  echo "ok: Neustart in 2 Sekunden"
+}
+
+cmd_shutdown() {
+  (sleep 2; systemctl poweroff) >/dev/null 2>&1 &
+  echo "ok: Ausschalten in 2 Sekunden"
+}
+
+# --- Updates -------------------------------------------------------------------------------
+cmd_update() {
+  set -a
+  if [[ -r "${UPDATE_CONFIG}" ]]; then
+    # shellcheck disable=SC1090
+    source "${UPDATE_CONFIG}"
+  fi
+  set +a
+  /usr/local/bin/autodarts-update-check.sh
+}
+
+cmd_channel() {
+  local new="${1:-}"
+  if [[ -z "${new}" ]]; then
+    cfg_get "${UPDATE_CONFIG}" AUTODARTS_CHANNEL stable
+    return 0
+  fi
+  case "${new}" in
+    stable | beta) ;;
+    *) die "Ungültiger Kanal '${new}' (erlaubt: stable, beta)" ;;
+  esac
+  printf 'AUTODARTS_CHANNEL=%q\n' "${new}" >"${UPDATE_CONFIG}"
+  echo "${new}"
+}
+
+# Setup aus GitHub erneut ausfuehren (behaelt bestehende Einstellungen bei)
+cmd_self_update() {
+  (
+    ROTATION_OPTION=1
+    DSI_MODE=800x480
+    DSI_SCALE=1.2x1.2
+    MIRROR_HDMI=1
+    AUTODARTS_CHANNEL=stable
+    for f in "${DISPLAY_CONFIG}" "${UPDATE_CONFIG}"; do
+      if [[ -r "${f}" ]]; then
+        # shellcheck disable=SC1090
+        source "${f}"
+      fi
+    done
+    curl -fsSL "https://raw.githubusercontent.com/${AUTODARTS_REPO}/${AUTODARTS_REF}/install.sh" \
+      | env \
+        TARGET_USER="${TARGET_USER}" \
+        AUTODARTS_REPO="${AUTODARTS_REPO}" \
+        AUTODARTS_REF="${AUTODARTS_REF}" \
+        ROTATION_OPTION="${ROTATION_OPTION}" \
+        DSI_MODE="${DSI_MODE}" \
+        DSI_SCALE="${DSI_SCALE}" \
+        MIRROR_HDMI="${MIRROR_HDMI}" \
+        AUTODARTS_CHANNEL="${AUTODARTS_CHANNEL}" \
+        BT_SPEAKER=no \
+        bash
+  )
+}
+
+# --- Display ---------------------------------------------------------------------------------
+cmd_display_set() {
+  local rot="${1:-}" scale="${2:-}" mirror="${3:-}" mode="${4:-}" opt deg
+
+  case "${rot}" in
+    normal) opt=1; deg=0 ;;
+    right) opt=2; deg=90 ;;
+    left) opt=3; deg=-90 ;;
+    inverted) opt=4; deg=180 ;;
+    *) die "Ungültige Rotation '${rot}' (normal|right|left|inverted)" ;;
+  esac
+  [[ "${scale}" =~ ${SCALE_REGEX} ]] || die "Ungültige Skalierung '${scale}' (z. B. 1.2x1.2)"
+  [[ "${mirror}" == "0" || "${mirror}" == "1" ]] || die "Ungültiger Spiegel-Wert '${mirror}' (0|1)"
+  [[ "${mode}" =~ ${MODE_REGEX} ]] || die "Ungültige Auflösung '${mode}' (z. B. 800x480)"
+
+  {
+    echo "# Wird von /usr/local/bin/autodarts-display.sh gelesen (Setup erneut ausführen oder hier anpassen)."
+    printf 'ROTATION_OPTION=%q\n' "${opt}"
+    printf 'ROTATION_DEGREES=%q\n' "${deg}"
+    printf 'ROTATION_XRANDR=%q\n' "${rot}"
+    printf 'DSI_MODE=%q\n' "${mode}"
+    printf 'DSI_SCALE=%q\n' "${scale}"
+    printf 'MIRROR_HDMI=%q\n' "${mirror}"
+  } >"${DISPLAY_CONFIG}"
+
+  as_user /usr/local/bin/autodarts-display.sh || true
+  echo "ok: Display-Einstellungen gespeichert und angewendet"
+}
+
+cmd_screenshot() {
+  rm -f "${SCREENSHOT_FILE}"
+  if command -v scrot >/dev/null 2>&1; then
+    as_user scrot -o "${SCREENSHOT_FILE}" || die "Screenshot fehlgeschlagen"
+  elif command -v import >/dev/null 2>&1; then
+    as_user import -window root "${SCREENSHOT_FILE}" || die "Screenshot fehlgeschlagen"
+  else
+    die "Weder scrot noch import (ImageMagick) installiert: sudo apt install scrot"
+  fi
+  chmod 0644 "${SCREENSHOT_FILE}"
+  echo "${SCREENSHOT_FILE}"
+}
+
+# --- Bluetooth ---------------------------------------------------------------------------------
+bt_saved_mac() {
+  cfg_get "${BT_CONFIG}" BT_SPEAKER_MAC ""
+}
+
+cmd_bt_list() {
+  /usr/local/bin/autodarts-bt-speaker --list
+}
+
+cmd_bt_pair() {
+  local mac="${1:-}"
+  [[ "${mac}" =~ ${MAC_REGEX} ]] || die "Ungültige MAC-Adresse '${mac}'"
+  /usr/local/bin/autodarts-bt-speaker "${mac}"
+}
+
+cmd_bt_connect() {
+  local mac
+  mac="$(bt_saved_mac)"
+  [[ -n "${mac}" ]] || die "Kein Lautsprecher gespeichert"
+  timeout 30 bluetoothctl connect "${mac}"
+}
+
+cmd_bt_disconnect() {
+  local mac
+  mac="$(bt_saved_mac)"
+  [[ -n "${mac}" ]] || die "Kein Lautsprecher gespeichert"
+  bluetoothctl disconnect "${mac}"
+}
+
+cmd_bt_forget() {
+  local mac
+  mac="$(bt_saved_mac)"
+  [[ -n "${mac}" ]] || die "Kein Lautsprecher gespeichert"
+  bluetoothctl disconnect "${mac}" >/dev/null 2>&1 || true
+  bluetoothctl remove "${mac}" || true
+  rm -f "${BT_CONFIG}"
+  echo "ok: Lautsprecher entfernt"
+}
+
+# --- Logs ----------------------------------------------------------------------------------------
+cmd_logs() {
+  case "${1:-update}" in
+    update) tail -n 200 /var/log/autodarts-update.log 2>&1 ;;
+    bluetooth) journalctl -u bluetooth -n 200 --no-pager 2>&1 ;;
+    system) journalctl -b -n 300 --no-pager -p warning 2>&1 ;;
+    *) die "Unbekanntes Log '${1:-}' (update|bluetooth|system)" ;;
+  esac
+}
+
+usage() {
+  cat <<'EOF'
+autodarts-ctl <befehl>
+
+  status                      Zustand als key=value-Zeilen
+  restart-app                 AutoDarts Desktop neu starten
+  restart-kiosk               Chromium im Kiosk neu starten
+  reboot | shutdown           Pi neu starten / ausschalten
+  update                      AutoDarts-Update suchen und installieren
+  channel [stable|beta]       Update-Kanal anzeigen / setzen
+  self-update                 Setup aus GitHub erneut ausführen
+  display-set ROT SCALE MIRROR MODE
+                              ROT: normal|right|left|inverted, SCALE z. B. 1.2x1.2,
+                              MIRROR: 0|1, MODE z. B. 800x480
+  screenshot                  Screenshot nach /tmp/autodarts-screenshot.png
+  bt-list                     Bluetooth-Geräte suchen (MAC<TAB>Name<TAB>Audio 0|1)
+  bt-pair MAC                 Lautsprecher koppeln und speichern
+  bt-connect | bt-disconnect | bt-forget
+  logs [update|bluetooth|system]
+  version
+EOF
+}
+
+cmd="${1:-help}"
+shift || true
+
+case "${cmd}" in
+  version) echo "${CTL_VERSION}" ;;
+  status) cmd_status ;;
+  restart-app) cmd_restart_app ;;
+  restart-kiosk) cmd_restart_kiosk ;;
+  reboot) cmd_reboot ;;
+  shutdown) cmd_shutdown ;;
+  update) cmd_update ;;
+  channel) cmd_channel "$@" ;;
+  self-update) cmd_self_update ;;
+  display-set) cmd_display_set "$@" ;;
+  screenshot) cmd_screenshot ;;
+  bt-list) cmd_bt_list ;;
+  bt-pair) cmd_bt_pair "$@" ;;
+  bt-connect) cmd_bt_connect ;;
+  bt-disconnect) cmd_bt_disconnect ;;
+  bt-forget) cmd_bt_forget ;;
+  logs) cmd_logs "$@" ;;
+  help | -h | --help) usage ;;
+  *)
+    usage >&2
+    exit 1
+    ;;
+esac

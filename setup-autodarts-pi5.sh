@@ -118,6 +118,7 @@ apt-get install -y --no-install-recommends \
   "${CHROMIUM_PACKAGE}" \
   curl \
   jq \
+  scrot \
   ca-certificates \
   unclutter \
   x11-xserver-utils
@@ -146,6 +147,12 @@ done
 
 install -D -m 0755 "${FILES_DIR}/bin/autodarts-desktop" /usr/local/bin/autodarts-desktop
 install -D -m 0755 "${FILES_DIR}/bin/autodarts-bt-speaker" /usr/local/bin/autodarts-bt-speaker
+install -D -m 0755 "${FILES_DIR}/bin/autodarts-ctl" /usr/local/bin/autodarts-ctl
+{
+  printf 'TARGET_USER=%q\n' "${TARGET_USER}"
+  printf 'AUTODARTS_REPO=%q\n' "${AUTODARTS_REPO:-marion909/autodarts-raspbian-7zoll-pi5}"
+  printf 'AUTODARTS_REF=%q\n' "${AUTODARTS_REF:-main}"
+} >/etc/default/autodarts-ctl
 printf 'AUTODARTS_CHANNEL=%q\n' "${AUTODARTS_CHANNEL}" >/etc/default/autodarts-update
 
 install -D -m 0644 "${FILES_DIR}/share/offline.html" "${SHARE_DIR}/offline.html"
@@ -231,6 +238,9 @@ if command -v raspi-config >/dev/null 2>&1; then
   step "X11-Session für On-Screen-Keyboard und Auto-Login auf Desktop aktivieren"
   raspi-config nonint do_wayland W1 || true
   raspi-config nonint do_boot_behaviour B4 || true
+  if [[ "${ENABLE_SSH:-0}" == "1" ]]; then
+    raspi-config nonint do_ssh 0 || systemctl enable --now ssh || true
+  fi
 else
   step "raspi-config nicht gefunden, Auto-Login und X11 bitte manuell aktivieren"
 fi
@@ -314,3 +324,7 @@ echo "Update-Kanal:          ${AUTODARTS_CHANNEL} (/etc/default/autodarts-update
 echo "Display-Einstellungen: /etc/default/autodarts-display (Rotation ${ROTATION_LABEL}°)"
 echo "Update-Log:            /var/log/autodarts-update.log"
 echo "Bluetooth-Lautsprecher: sudo autodarts-bt-speaker (Suche, Auswahl, Verbinden)"
+echo "Verwaltung per Terminal: autodarts-ctl help   (die Mac-App 'Autodarts Control' nutzt SSH)"
+if [[ "$(systemctl is-active ssh 2>/dev/null || true)" != "active" ]]; then
+  echo "HINWEIS: SSH ist nicht aktiv (nötig für die Mac-App). Aktivieren: sudo raspi-config nonint do_ssh 0"
+fi

@@ -47,6 +47,7 @@ Weitere optionale Variablen (nach `sudo` angeben):
 | `MIRROR_HDMI`    | `1`                                       | `0` = HDMI nicht auf DSI spiegeln           |
 | `AUTODARTS_CHANNEL` | `stable`                               | `stable` oder `beta` für AutoDarts Desktop  |
 | `BT_SPEAKER`     | (Rückfrage)                               | `yes`, `no` oder MAC-Adresse des Bluetooth-Lautsprechers |
+| `ENABLE_SSH`     | unverändert                               | `1` = SSH aktivieren (nötig für die Mac-App) |
 
 > Hinweis: Ein Skript per `curl | sudo bash` auszuführen heißt, dem Repository zu vertrauen.
 > Wer vorher lesen möchte, lädt [install.sh](install.sh) zuerst herunter, oder klont das Repo und startet
@@ -115,6 +116,37 @@ sudo autodarts-bt-speaker AA:BB:CC:DD:EE:FF    # direkt per MAC-Adresse
 Ohne Rückfrage beim Setup: `BT_SPEAKER=no` (überspringen) oder `BT_SPEAKER=AA:BB:CC:DD:EE:FF` (direkt koppeln).
 Kommt der Ton nicht automatisch aus dem Lautsprecher, das Lautsprecher-Symbol in der Taskleiste öffnen und das Gerät wählen.
 
+## Mac-App „Autodarts Control“
+
+Eine native macOS-App (Fenster + Menüleiste) zur Verwaltung des Pi per Klick. Sie spricht per SSH mit dem Pi und
+benutzt dort den Befehl `autodarts-ctl`.
+
+**Funktionen**
+
+- **Übersicht:** IP, Laufzeit, CPU-Temperatur, Speicher, **Stromversorgung** (Unterspannung/Drosselung), AutoDarts-Status
+- **Aktionen:** AutoDarts oder Kiosk neu starten, Pi neu starten/ausschalten, Screenshot vom Pi-Bildschirm, Weboberfläche (Port 3180) öffnen
+- **Display:** Rotation, Skalierung, Auflösung, HDMI-Spiegelung, sofort wirksam
+- **Bluetooth:** Lautsprecher suchen, koppeln, verbinden, trennen, entfernen
+- **Updates:** AutoDarts-Update prüfen/installieren, Kanal stable/beta, Setup aus GitHub erneut ausführen
+- **Logs:** Update-, Bluetooth- und System-Log
+
+**Installation** (Voraussetzung: Xcode oder `xcode-select --install`)
+
+```bash
+cd mac-app
+./build.sh          # baut nach ~/Applications/Autodarts Control.app
+open ~/Applications/"Autodarts Control.app"
+```
+
+**Erster Start:** Hostname (Standard `Autodarts.local`) und Benutzer eintragen. Die App fragt einmalig nach dem
+Pi-Passwort, hinterlegt damit einen eigenen SSH-Schlüssel (`~/.ssh/autodarts_control_ed25519`) auf dem Pi und speichert
+das Passwort nirgends. Fehlen die Pi-Tools, installiert die App sie per Klick (führt das Setup aus GitHub aus).
+
+**Voraussetzungen auf dem Pi:** SSH aktiv (`sudo raspi-config nonint do_ssh 0` oder beim Setup `ENABLE_SSH=1`) und der
+Benutzer darf `sudo` ohne Passwort (Standard unter Raspberry Pi OS).
+
+Alle Funktionen gibt es auch im Terminal des Pi: `autodarts-ctl help`.
+
 ## Display-Verhalten
 
 Das Skript `autodarts-display.sh` läuft synchron vor dem Chromium-Start (keine Race Conditions mehr) und
@@ -176,6 +208,8 @@ http://<RASPBERRY_PI_IP>:3180
 | `/etc/default/autodarts-update`               | Update-Kanal (`stable`/`beta`)               |
 | `/etc/default/autodarts-display`              | Display-Konfiguration                        |
 | `/usr/local/bin/autodarts-bt-speaker`         | Bluetooth-Lautsprecher suchen und koppeln    |
+| `/usr/local/bin/autodarts-ctl`                | Verwaltungs-Schnittstelle (Mac-App, Terminal) |
+| `/etc/default/autodarts-ctl`                  | Desktop-Benutzer und Repo-Quelle für Updates |
 | `/etc/default/autodarts-bt`                   | gespeicherter Bluetooth-Lautsprecher         |
 | `/usr/local/share/autodarts/`                 | Wallpaper und Offline-Seite                  |
 | `/var/log/autodarts-update.log`               | Update-Log                                   |
@@ -193,6 +227,7 @@ files/autostart/            # Desktop-Autostart-Einträge
 files/systemd/              # systemd-Service für den Update-Check
 files/share/                # Offline-Warteseite
 assets/                     # boot-splash.png, wallpaper.jpg
+mac-app/                    # macOS-App "Autodarts Control" (Swift, build.sh)
 ```
 
 ## Troubleshooting
